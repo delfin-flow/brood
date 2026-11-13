@@ -1,0 +1,6 @@
+Desired=Unknown/Install/Remove/Purge/Hold
+| Name              | Version | Architecture |
+| python3           | 3.12.3  | amd64        |
+| systemd           | 255.4   | amd64        |
+| git               | 2.43.0  | amd64        |
+| nodejs            | 20.11.1 | amd64        |

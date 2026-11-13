@@ -1,0 +1,30 @@
+# Derived TEST image — not the delivered machine.
+# Adds only what the integration harness requires and part 1 deliberately omits:
+#   - Node 24 (broodctl is a Node program)
+#   - broodctl itself
+#   - the operator public key authorised for user `brood`
+FROM brood-image:local
+
+USER root
+ARG NODE_VERSION=v24.19.0
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends xz-utils; \
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1 --no-same-owner; \
+    rm -rf /var/lib/apt/lists/*; \
+    node --version
+
+COPY cli/dist/broodctl.mjs /usr/local/lib/broodctl/broodctl.mjs
+RUN printf '#!/bin/sh\nexec node /usr/local/lib/broodctl/broodctl.mjs "$@"\n' > /usr/local/bin/broodctl \
+ && chmod 0755 /usr/local/bin/broodctl
+
+COPY testkey.pub /home/brood/.ssh/authorized_keys
+RUN chown -R brood:brood /home/brood/.ssh && chmod 0700 /home/brood/.ssh && chmod 0600 /home/brood/.ssh/authorized_keys
+
+# The delivered machine relies on compose for its sshd config and entrypoint.
+# The integration harness runs the image bare, so the test image self-contains both.
+USER root
+RUN mkdir -p /etc/ssh/host_keys && ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/host_keys/ssh_host_ed25519_key
+COPY sshd_config.test /etc/ssh/sshd_config
+ENTRYPOINT ["/usr/sbin/sshd", "-D", "-e", "-f", "/etc/ssh/sshd_config"]

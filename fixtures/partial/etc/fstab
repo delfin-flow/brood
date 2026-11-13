@@ -1,0 +1,3 @@
+# <source>                 <target>    <type>  <options>       <dump> <pass>
+/dev/mapper/vg0-root        /           ext4    defaults        0      1
+/dev/mapper/vg0-data        /srv/data   ext4    defaults        0      2

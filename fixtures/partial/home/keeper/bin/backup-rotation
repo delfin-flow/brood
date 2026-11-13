@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fixture command stub. It is not invoked by this archive.
+printf '%s\n' 'backup rotation fixture stub'

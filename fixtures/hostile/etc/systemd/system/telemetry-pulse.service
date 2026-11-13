@@ -1,0 +1,12 @@
+[Unit]
+Description=Telemetry pulse helper
+After=network.target
+
+[Service]
+Type=simple
+User=keeper
+ExecStart=/srv/scenario/home/keeper/bin/telemetry-pulse --quiet
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

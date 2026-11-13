@@ -1,0 +1,8 @@
+$ namei -l srv/isolated/unreadable/inside.txt
+drwxr-xr-x root root srv
+drwxr-xr-x root root isolated
+d--------- root root unreadable
+-rw------- root root inside.txt
+$ readlink srv/diagnostics/loop-a; readlink srv/diagnostics/loop-b
+loop-b
+loop-a

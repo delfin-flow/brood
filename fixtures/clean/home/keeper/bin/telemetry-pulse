@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fixture service payload; harmless and not invoked by this archive.
+printf '%s\n' 'telemetry pulse fixture'

@@ -1,0 +1,6 @@
+$ command -v dpkg
+(no output)
+exit_status=1
+$ command -v dpkg-query
+(no output)
+exit_status=1

@@ -1,0 +1,88 @@
+name: dirty-business
+extends: dirty-dev
+materialization: self-contained snapshot (safe to bind-mount directly)
+faults:
+  - id: storage.near_full
+    expect_as: storage.headroom_low
+    discoverable_by:
+      - "df -h"
+      - "cat etc/brood/packets/df-h.txt"
+    evidence: "etc/brood/packets/df-h.txt"
+  - id: service.unit_invalid
+    expect_as: service.unit_invalid
+    discoverable_by:
+      - "systemd-analyze verify etc/systemd/system/ledger-reconcile.service"
+      - "cat etc/systemd/system/ledger-reconcile.service"
+    evidence: "etc/systemd/system/ledger-reconcile.service"
+    note: "Type=oneshot combined with Restart=always is invalid for a systemd oneshot service."
+  - id: service.undocumented_running
+    expect_as: service.running_undocumented
+    discoverable_by:
+      - "systemctl --no-pager --type=service --state=running"
+      - "grep -R telemetry-pulse home/keeper/cockpit home/brood/AGENTS.md"
+    evidence: "etc/brood/packets/systemctl-services.txt"
+  - id: cron.undocumented_job
+    expect_as: cron.job_undocumented
+    discoverable_by:
+      - "cat etc/cron.d/rebuild-ledger"
+      - "crontab -l -u keeper"
+      - "grep -R rebuild-ledger home/keeper/cockpit home/brood/AGENTS.md"
+    evidence: "etc/cron.d/rebuild-ledger"
+  - id: docs.contradictory_agents_md
+    expect_as: docs.contradiction
+    discoverable_by:
+      - "diff -u home/brood/AGENTS.md home/keeper/cockpit/runbook.md"
+      - "grep -R \"80%\\|85%\\|worker_pool\\|cron\" home/brood/AGENTS.md home/keeper/cockpit"
+    evidence: "home/brood/AGENTS.md"
+  - id: workspace.charter_rotted
+    expect_as: workspace.charter_stale
+    discoverable_by:
+      - "find srv/workspaces -maxdepth 2 -type f -print"
+      - "sed -n \"1,120p\" srv/workspaces/legacy-billing/WORKSPACE.md"
+    evidence: "srv/workspaces/legacy-billing/WORKSPACE.md"
+  - id: filesystem.broken_symlink
+    expect_as: filesystem.broken_symlink
+    discoverable_by:
+      - "find home srv -xtype l -print"
+      - "readlink home/keeper/bin/legacy-import"
+    evidence: "home/keeper/bin/legacy-import"
+  - id: filesystem.unexpected_owner
+    expect_as: filesystem.unexpected_ownership
+    discoverable_by:
+      - "stat -c \"%u:%g %a %n\" srv/reports/quarterly-recon.csv"
+    evidence: "etc/brood/packets/filesystem-anomalies.txt"
+  - id: filesystem.orphan_directory
+    expect_as: filesystem.orphaned_directory
+    discoverable_by:
+      - "find srv/projects -maxdepth 1 -type d -printf \"%u:%g %p\\n\""
+      - "find srv/workspaces -maxdepth 2 -type f -name WORKSPACE.md"
+    evidence: "srv/projects/retired-exports"
+  - id: backup.restore_unverified
+    expect_as: backup.restore_unverified
+    discoverable_by:
+      - "tar -tzf srv/backups/nightly-2026-11-12.tar.gz"
+      - "cat etc/brood/packets/backup-audit.txt"
+      - "grep -R \"restored\\|restore\" home/keeper/cockpit"
+    evidence: "etc/brood/packets/backup-audit.txt"
+collectors:
+  - host_facts
+  - storage
+  - packages
+  - services
+  - projects
+  - docs
+  - cron
+  - backups
+  - permissions
+  - environment
+expected_coverage: complete-within-scope
+
+collector_contracts:
+  storage:
+    packet: etc/brood/packets/df-h.txt
+  services:
+    packet: etc/brood/packets/systemctl-services.txt
+  packages:
+    required_tool: dpkg-query
+    expected_status: supported
+inheritance_note: dirty-dev files are materialized here for direct bind-mount use; inherited fault declarations remain canonical in dirty-dev/scenario.yaml.

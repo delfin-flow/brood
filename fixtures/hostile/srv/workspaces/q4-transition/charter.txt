@@ -1,0 +1,6 @@
+Q4 TRANSITION / scratch charter
+scope = move invoice reconciliation into the nightly path
+owner = unassigned
+status = blocked
+last_review = 2025-01-12
+notes = replace after migration sign-off; no sign-off recorded

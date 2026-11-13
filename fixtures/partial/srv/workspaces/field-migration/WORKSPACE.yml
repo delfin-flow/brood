@@ -1,0 +1,10 @@
+workspace: field-migration
+owner: Field Tools
+purpose: Maintain the polyglot field import utilities.
+status: stable
+reviewed: 2026-11-08
+entry_points:
+  - srv/projects/field-tools
+policy:
+  - preserve backward-compatible CSV input
+  - document supported runtimes

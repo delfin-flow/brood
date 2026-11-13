@@ -1,0 +1,7 @@
+backup_id: nightly-2026-11-12
+archive: srv/backups/nightly-2026-11-12.tar.gz
+archive_present: true
+restore_test_count: 0
+last_restore_test: null
+result: not-tested
+checksum_status: archive-readable-only

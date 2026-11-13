@@ -1,0 +1,6 @@
+{
+  "name": "brood-commerce-console",
+  "private": true,
+  "version": "1.4.0",
+  "scripts": {"check": "node --check console.js"}
+}

@@ -1,0 +1,2 @@
+# Documented fixture backup rotation; implementation is represented by packet evidence.
+15 1 * * * keeper /srv/scenario/home/keeper/bin/backup-rotation --retain 14

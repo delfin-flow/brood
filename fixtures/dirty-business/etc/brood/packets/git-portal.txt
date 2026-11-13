@@ -1,0 +1,3 @@
+$ git -C srv/projects/portal status --short
+ M src/settings.py
+?? LOCAL-ONLY-NOTES.md

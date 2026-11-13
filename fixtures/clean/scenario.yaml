@@ -1,0 +1,23 @@
+name: clean
+extends: null
+materialization: self-contained snapshot (safe to bind-mount directly)
+faults: []
+collectors:
+  - host_facts
+  - storage
+  - packages
+  - services
+  - projects
+  - docs
+  - cron
+  - backups
+  - permissions
+  - environment
+expected_coverage: complete-within-scope
+
+collector_contracts:
+  packages:
+    required_tool: dpkg-query
+    expected_status: supported
+  services:
+    evidence_packet: etc/brood/packets/systemctl-services.txt

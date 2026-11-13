@@ -1,0 +1,4 @@
+$ git -C srv/projects/field-tools status -sb
+## HEAD (no branch)
+ D README.md
+HEAD detached at 182239c

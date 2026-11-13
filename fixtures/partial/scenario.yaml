@@ -1,0 +1,31 @@
+name: partial
+extends: clean
+materialization: self-contained snapshot (safe to bind-mount directly)
+faults:
+  - id: collector.packages_tool_missing
+    expect_as: collector.unsupported
+    discoverable_by:
+      - "cat etc/brood/environment.yaml"
+      - "cat etc/brood/packets/command-v-dpkg-query.txt"
+    evidence: "etc/brood/packets/command-v-dpkg-query.txt"
+    note: "Only the packages collector is affected; do not infer package state or report a clean package inventory."
+collectors:
+  - host_facts
+  - storage
+  - packages
+  - services
+  - projects
+  - docs
+  - cron
+  - backups
+  - permissions
+  - environment
+expected_coverage: partial-by-design
+
+collector_contracts:
+  packages:
+    required_tool: dpkg-query
+    expected_status: unsupported
+    reason: command is absent from the packages collector PATH
+  all_other_collectors:
+    expected_status: same-as-clean

@@ -1,0 +1,5 @@
+collector_environments:
+  packages:
+    required_tool: dpkg-query
+    tool_available: true
+    path: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

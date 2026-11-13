@@ -1,0 +1,5 @@
+$ git -C srv/projects/commerce-platform status -sb
+## main...origin/main [behind 3]
+$ git -C srv/projects/commerce-platform branch -vv
+  feature/q4-ledger-migration 37ccd6f Add incomplete Q4 migration checklist
+* main                        2c725f6 [origin/main: behind 3] Begin Q4 ledger migration and add local config

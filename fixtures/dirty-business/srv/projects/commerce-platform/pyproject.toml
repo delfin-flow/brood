@@ -1,0 +1,5 @@
+[project]
+name = "brood-commerce-platform"
+version = "1.4.0"
+requires-python = ">=3.10"
+dependencies = []

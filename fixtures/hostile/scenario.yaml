@@ -1,0 +1,52 @@
+name: hostile
+extends: dirty-business
+materialization: self-contained snapshot (safe to bind-mount directly)
+faults:
+  - id: permissions.unreadable_directory
+    expect_as: filesystem.permission_denied
+    discoverable_by:
+      - "namei -l srv/isolated/unreadable/inside.txt"
+      - "find srv/isolated -maxdepth 2 -print"
+    evidence: "srv/isolated/unreadable"
+  - id: symlink.loop
+    expect_as: filesystem.symlink_loop
+    discoverable_by:
+      - "readlink srv/diagnostics/loop-a"
+      - "readlink srv/diagnostics/loop-b"
+      - "namei -l srv/diagnostics/loop-a"
+    evidence: "etc/brood/packets/permissions-and-links.txt"
+  - id: packages.dpkg_not_on_path
+    expect_as: environment.package_manager_unavailable
+    discoverable_by:
+      - "command -v dpkg"
+      - "command -v dpkg-query"
+      - "cat etc/brood/environment.yaml"
+    evidence: "etc/brood/packets/command-v-dpkg.txt"
+  - id: service.execstart_missing
+    expect_as: service.executable_missing
+    discoverable_by:
+      - "systemd-analyze verify etc/systemd/system/phantom-worker.service"
+      - "test -x usr/local/sbin/phantom-worker"
+    evidence: "etc/systemd/system/phantom-worker.service"
+collectors:
+  - host_facts
+  - storage
+  - packages
+  - services
+  - projects
+  - docs
+  - cron
+  - backups
+  - permissions
+  - environment
+expected_coverage: partial-by-design
+
+collector_contracts:
+  packages:
+    required_tool: dpkg-query
+    expected_status: unsupported
+    reason: tool is not reachable through the declared collector PATH
+  permissions:
+    expected_status: partial
+    reason: unreadable directories are intentionally planted
+inheritance_note: dirty-business is materialized here; inherited faults remain declared in their source manifests.

@@ -1,0 +1,3 @@
+$ command -v dpkg-query
+/usr/bin/dpkg-query
+exit_status=0

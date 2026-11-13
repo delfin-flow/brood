@@ -1,0 +1,12 @@
+[Unit]
+Description=Phantom worker with missing executable
+After=network.target
+
+[Service]
+Type=simple
+User=keeper
+ExecStart=/usr/local/sbin/phantom-worker --serve
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

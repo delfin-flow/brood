@@ -1,0 +1,1 @@
+40 2 * * 1-5 keeper /srv/scenario/home/keeper/bin/rebuild-ledger.sh --quiet

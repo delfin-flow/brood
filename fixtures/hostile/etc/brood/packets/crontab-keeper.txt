@@ -1,0 +1,2 @@
+$ crontab -l -u keeper
+40 2 * * 1-5 /srv/scenario/home/keeper/bin/rebuild-ledger.sh --quiet

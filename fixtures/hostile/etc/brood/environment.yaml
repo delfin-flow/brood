@@ -1,0 +1,11 @@
+collector_environments:
+  packages:
+    required_tool: dpkg-query
+    tool_available: false
+    path: /usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin
+    reason: /usr/bin and /bin are intentionally absent from the collector PATH in this scenario
+  host:
+    path: /usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin
+    missing_from_path:
+      - dpkg
+      - dpkg-query

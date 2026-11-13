@@ -1,0 +1,58 @@
+name: dirty-dev
+extends: clean
+materialization: self-contained snapshot (safe to bind-mount directly)
+faults:
+  - id: git.branch_stale
+    expect_as: project.branch_stale
+    discoverable_by:
+      - "git -C srv/projects/commerce-platform status -sb"
+      - "git -C srv/projects/commerce-platform branch -vv"
+    evidence: "etc/brood/packets/git-branch-commerce.txt"
+  - id: migration.incomplete
+    expect_as: project.migration_incomplete
+    discoverable_by:
+      - "find srv/projects/commerce-platform/migrations -type f -maxdepth 3"
+      - "git -C srv/projects/commerce-platform status -sb"
+    evidence: "srv/projects/commerce-platform/migrations/2026-Q4/002_backfill.sql.todo"
+  - id: git.detached_head
+    expect_as: project.detached_head
+    discoverable_by:
+      - "git -C srv/projects/field-tools status -sb"
+      - "git -C srv/projects/field-tools symbolic-ref -q HEAD"
+    evidence: "etc/brood/packets/git-field-tools.txt"
+  - id: project.docs_missing
+    expect_as: project.documentation_missing
+    discoverable_by:
+      - "find srv/projects/field-tools -maxdepth 2 -iname README.md -o -path \"*/docs/*\""
+    evidence: "srv/projects/field-tools"
+  - id: git.uncommitted_changes
+    expect_as: project.working_tree_dirty
+    discoverable_by:
+      - "git -C srv/projects/portal status --short"
+    evidence: "etc/brood/packets/git-portal.txt"
+  - id: config.duplicated
+    expect_as: config.duplicate_conflicting
+    discoverable_by:
+      - "find etc srv/projects -type f -name app.conf -print"
+      - "diff -u etc/brood/app.conf srv/projects/commerce-platform/config/app.conf"
+    evidence: "etc/brood/packets/config-search.txt"
+collectors:
+  - host_facts
+  - storage
+  - packages
+  - services
+  - projects
+  - docs
+  - cron
+  - backups
+  - permissions
+  - environment
+expected_coverage: complete-within-scope
+
+collector_contracts:
+  packages:
+    required_tool: dpkg-query
+    expected_status: supported
+  projects:
+    git_repositories: 3
+    note: branch and worktree evidence packets are deterministic captures; repositories are real Git repositories

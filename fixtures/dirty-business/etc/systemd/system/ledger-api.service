@@ -1,0 +1,14 @@
+[Unit]
+Description=Brood ledger API
+After=network.target
+
+[Service]
+Type=simple
+User=keeper
+WorkingDirectory=/srv/scenario/srv/projects/commerce-platform
+ExecStart=/usr/bin/python3 /srv/scenario/srv/projects/commerce-platform/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

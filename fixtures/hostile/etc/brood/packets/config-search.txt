@@ -1,0 +1,3 @@
+$ find etc srv/projects -type f -name app.conf -print
+etc/brood/app.conf
+srv/projects/commerce-platform/config/app.conf

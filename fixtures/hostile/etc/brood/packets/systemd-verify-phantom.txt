@@ -1,0 +1,4 @@
+$ systemctl show -p ExecStart phantom-worker.service
+ExecStart={ path=/usr/local/sbin/phantom-worker ; argv[]=/usr/local/sbin/phantom-worker --serve ; }
+$ test -x usr/local/sbin/phantom-worker; echo $?
+1

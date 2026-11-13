@@ -1,0 +1,4 @@
+Filesystem                         Size  Used Avail Use% Mounted on
+/dev/mapper/vg0-root                40G   18G   22G  45% /
+/dev/mapper/vg0-data               100G   93G    7G  93% /srv/data
+tmpfs                               2G  4.0M  2.0G   1% /run

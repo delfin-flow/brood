@@ -1,0 +1,36 @@
+services:
+  brood:
+    image: brood-image:local
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BROOD_UID: ${BROOD_UID:-1000}
+        BROOD_GID: ${BROOD_GID:-1000}
+    container_name: brood-machine
+    hostname: brood
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - type: bind
+        source: ./scenario
+        target: /srv/scenario
+      - type: bind
+        source: ./.runtime/authorized_keys
+        target: /home/brood/.ssh
+        read_only: true
+      - type: bind
+        source: ./.runtime/host_keys
+        target: /etc/ssh/host_keys
+        read_only: true
+      - type: bind
+        source: ./sshd_config
+        target: /etc/ssh/sshd_config
+        read_only: true
+      - type: bind
+        source: ./entrypoint.sh
+        target: /usr/local/sbin/brood-entrypoint
+        read_only: true
+    entrypoint: ["/bin/bash", "/usr/local/sbin/brood-entrypoint"]
+    restart: "no"

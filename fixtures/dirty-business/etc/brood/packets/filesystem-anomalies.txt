@@ -1,0 +1,8 @@
+$ stat -c "%u:%g %a %n" srv/reports/quarterly-recon.csv
+4242:4242 660 srv/reports/quarterly-recon.csv
+$ stat -c "%u:%g %a %n" srv/projects/retired-exports
+65534:65534 750 srv/projects/retired-exports
+$ readlink home/keeper/bin/legacy-import
+../../../srv/projects/archived-import/bin/import.py
+$ test -e home/keeper/bin/legacy-import; echo $?
+1

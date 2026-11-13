@@ -1,0 +1,1 @@
+Directory traversal should be denied to an unprivileged collector.
