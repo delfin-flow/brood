@@ -45,6 +45,14 @@ serves: the "business operations workspace" offer (agentic operations).
   compiled loop), **Engram** (the deterministic reasoning kernel), **Iterifact** — formerly Weave — (goal →
   capability → artifact runtime), **Hippocampus** (deterministic retrieval). Brood does not rebuild them;
   once it proves a *need*, it references and adopts them rather than rebuilding.
+- **D4** — **Cove is Brood's interface surface.** Cove is the UI an operator works Brood through (an
+  Office queue of observations, proposals, approvals and reports); Brood keeps the CLI as its only
+  operator and does not grow a GUI of its own. Referenced, not built here.
+- **D5** — **Homeostat and FreshPoint are Brood's future evolution and optimisation, and they are
+  separate projects today.** Homeostat (local-first self-healing Linux operations) and FreshPoint
+  (maintenance and recovery tooling) are the human-driven forms of the same problem Brood generalises.
+  Brood references them; it does not absorb them, and it does not claim their scope. When Brood matures,
+  these are what it is offered *through* rather than replaced by.
 
 ## Stories
 
@@ -62,7 +70,9 @@ serves: the "business operations workspace" offer (agentic operations).
 
 - **Open source** (`D1`): the repo is the public artefact. Nothing private may land in it — the KB's
   reasoning is referenced by *name* (methodology), never by path or content.
-- **CLI first.** `broodctl` is the operator; a daemon/GUI is a later rung, not the first.
+- **CLI first.** `broodctl` is the operator; a daemon/GUI inside Brood is never the next rung. The
+  interface rung is **Cove** (D4) — an Office surface that works Brood's packets, proposals and reports,
+  referenced by contract rather than reimplemented.
 - **Simulation only** until A1–A10 pass. Brood does not touch a real machine before that.
 
 ## Hand-offs
