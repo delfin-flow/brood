@@ -11,7 +11,7 @@ asked to *pamper* — observe honestly, find drift, propose safe changes with re
 nothing that was not approved. The proof is `suite/` (the `broodctl` CLI + a Vitest suite); the world
 is `fixtures/` (five dirty scenarios).
 
-**Nothing here touches a real machine.** The container is the blast radius. Until its ten acceptance gates pass, autonomy is a design goal, not a fact.
+**Nothing here touches a real machine.** The container is the blast radius. Until its ten acceptance gates pass , autonomy is a design goal, not a fact.
 
 ## Navigation
 
@@ -20,6 +20,8 @@ is `fixtures/` (five dirty scenarios).
 | What it is, how to run it | `README.md` |
 | What verification actually found | `FINDINGS.md` — the defects and the honest limits |
 | What is done / next | `roadmap/ROADMAP.md` — single source of truth for status |
+| The docs index (packet schema, acceptance gates, verification record) | `docs/index.md` |
+| Why a delivered story was built the way it was | `roadmap/handoffs/` — one log per story, indexed by the roadmap |
 | The design contract | the ICM/MWP methodology (referenced by name; private, not vendored) |
 | Why the offer exists | the published "business operations workspace" offer |
 
