@@ -42,9 +42,9 @@ serves: the "business operations workspace" offer (agentic operations).
 - **D2** — the path leads to the **unattended ambient cycle**, gated on the evidence discipline: a
   planted fault must never read as a scan failure before any autonomy is allowed.
 - **D3** — sub-projects already exist that Brood will target as its optimisation step: **Guild** (the
-  compiled loop), **Engram** (the deterministic reasoning kernel), **Iterifact** and **Weave** (goal →
-  capability → artifact runtimes), **Hippocampus** (deterministic retrieval). Brood does not rebuild
-  them; once it proves a *need*, it references and adopts them rather than rebuilding.
+  compiled loop), **Engram** (the deterministic reasoning kernel), **Iterifact** — formerly Weave — (goal →
+  capability → artifact runtime), **Hippocampus** (deterministic retrieval). Brood does not rebuild them;
+  once it proves a *need*, it references and adopts them rather than rebuilding.
 
 ## Stories
 
@@ -56,7 +56,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | S4 | **Manifest ↔ parser agreement** — read `expect_as` and `discoverable_by` (the fixtures already declare them), and drop the tolerance for unknown fields | optimisation | 🔄 | A `scenario.yaml` with a wrong field name fails loudly, not silently |
 | S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; make it part of `just test:int` so a fresh checkout is hostile without a manual step | scripts | ⬜ | A fresh clone + `just test:int` reproduces the same fault set as the zip |
 | S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
-| S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Weave / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
+| S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
 
 ## Distribution & stations
 
