@@ -16,8 +16,9 @@ serves: the "business operations workspace" offer (agentic operations).
 - **The three zips landed and are assembled** under the repository root: `image/` (the machine),
   `fixtures/` (five dirty scenarios), `suite/` (`broodctl` + Vitest). Committed.
 - **Verified on this machine** (Docker 29.9.3, Node 24.19.0): `npm test` = **39 tests** offline, `tsc
-  --noEmit` clean, **all eight integration tests pass** — L2, L3 (five cases), L4 and blast radius —
-  and the image builds with key-only SSH.
+  --noEmit` clean, **all integration tests pass** — L2, L3 (four cases), L4, the materialisation guard
+  and blast radius; the guard's `hostile` case runs when that scenario is mounted — and the image builds
+  with key-only SSH. All five scenarios were run by hand, one mount each, and all five pass.
 - **S1 — coverage honesty.** A broken symlink is a fact (`filesystem.symlink`, `target_exists: false`),
   the scan stays `complete-within-scope`, and every non-complete packet carries
   `errors`/`skipped`/`problems` — enforced by `validatePacket`, documented in `docs/packet-schema.md`.
@@ -35,7 +36,14 @@ serves: the "business operations workspace" offer (agentic operations).
   refusing a file that changed after observation. Declared faults are the cross-check list: every one is
   either detected or returned in `undetected` with the gap named. Only storage is detected; the rest is
   honestly undetected.
-- **S1/S2/S3/S4 acceptance is met and verified here; each stays 🔄 until the owner confirms it.**
+- **S1/S2/S3/S4/S5 acceptance is met and verified here; each stays 🔄 until the owner confirms it.**
+- **S5 — fixture materialisation.** `.git.fixture` → `.git` and the `hostile` permissions are re-applied
+  by `fixtures/materialize.sh` on a **throwaway copy** of one scenario (`BROOD_SCENARIO`, default
+  `dirty-business`) that the harness mounts at `/srv/scenario:ro`. A fresh clone therefore reproduces
+  the delivered fault set with no manual step, the checkout is never written (a run leaves
+  `git status --short` clean), and a guard test fails if the mount is not materialised. Remaining seam:
+  a fault a scenario inherits (`extends:`) is detected but not listed as declared, because the CLI
+  cross-checks only the manifest embedded in the packet.
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that is
   the point of S6, not a current fact.
 
@@ -66,7 +74,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | S2 | **One real detector** — implement storage-headroom detection (compare `df` facts against the declared threshold) and re-point L3's evidence at the observed *fact*, not the manifest | optimisation | 🔄 | L3 finds `storage.near_full` by citing a packet fact; the "declared-fault echo" path is removed or gated behind a real check |
 | S3 | **Fix the L4 interruption test** — repair the kill helper so the signal reaches the right pid, then make recovery actually pass | optimisation | 🔄 | L4 green: interrupted observe leaves a recoverable journal; expired/altered approval refused; revert exercised |
 | S4 | **Manifest ↔ parser agreement** — read `expect_as` and `discoverable_by` (the fixtures already declare them), and drop the tolerance for unknown fields | optimisation | 🔄 | A `scenario.yaml` with a wrong field name fails loudly, not silently |
-| S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; make it part of `just test:int` so a fresh checkout is hostile without a manual step | scripts | ⬜ | A fresh clone + `just test:int` reproduces the same fault set as the zip |
+| S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; the harness now runs it on a throwaway copy of one mounted scenario (`BROOD_SCENARIO`), so a fresh checkout is hostile without a manual step | scripts | 🔄 | A fresh clone + `cd suite && npm run test:int` reproduces the same fault set as the zip — and leaves the checkout untouched |
 | S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
 | S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
 
@@ -87,8 +95,8 @@ not copied**. A story's hand-off names the stem; the body lives in the queue.
 | Story | Note stem | Status |
 |---|---|---|
 | S2 storage-headroom detector | `2026-11-14-01-flash-brood-s2-storage-headroom-detector` | done |
-| S5 fixture materialisation | `2026-11-14-02-flash-brood-s5-fixture-materialisation` | open |
+| S5 fixture materialisation | `2026-11-14-02-flash-brood-s5-fixture-materialisation` | done |
 | v0 acceptance run (not a story — the review gate) | `2026-11-14-03-flash-brood-v0-verification-gate` | open |
 
-S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); S2 ran as a flash handoff. Their acceptance
-is met and verified, and each stays 🔄 until the owner confirms it.
+S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); S2 and S5 ran as flash handoffs. Their
+acceptance is met and verified, and each stays 🔄 until the owner confirms it.

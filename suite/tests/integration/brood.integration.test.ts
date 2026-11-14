@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  REMOTE_SCENARIO_ROOT,
   cli,
+  declaredExpectedCoverage,
+  declaredFaultChain,
   declaredFaults,
-  parseJsonOutput,
   remote,
   remoteJson,
+  requestedScenario,
   requireEnvironment,
   scenarioSnapshotAfter,
   scenarioSnapshotBefore,
@@ -49,13 +52,30 @@ interface Assessment {
   undetected: Undetected[];
 }
 
+/**
+ * The harness mounts exactly one materialised scenario at `/srv/scenario`, so every scope
+ * in this file is the mount root. Which scenario is mounted comes from `BROOD_SCENARIO`
+ * (default `dirty-business`) — the per-scenario expectations below are read from that
+ * scenario's own manifest, never assumed.
+ */
+const scope = REMOTE_SCENARIO_ROOT;
+const scenarioName = requestedScenario();
+
+let expectedCoverage = "";
+let declared: Awaited<ReturnType<typeof declaredFaults>> = [];
+let declaredChain: Awaited<ReturnType<typeof declaredFaultChain>> = [];
+let declaredKinds = new Set<string>();
 let packets: Packet[] = [];
 let assessment: Assessment;
 let findings: Finding[] = [];
 
 beforeAll(async () => {
   await startBroodEnvironment();
-  packets = await remoteJson<Packet[]>(cli("observe --scope /srv/scenario"));
+  expectedCoverage = await declaredExpectedCoverage();
+  declared = await declaredFaults();
+  declaredChain = await declaredFaultChain();
+  declaredKinds = new Set(declaredChain.map((fault) => fault.expectAs));
+  packets = await remoteJson<Packet[]>(cli(`observe --scope '${scope}'`));
   assessment = await remoteJson<Assessment>(
     withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("assess")), packets
   );
@@ -71,23 +91,37 @@ describe("L2 — SSH command integration", () => {
     expect(packets.length).toBeGreaterThan(0);
     expect(packets.every((packet) => typeof packet.canonical_hash === "string" && packet.canonical_hash.length === 64)).toBe(true);
     const providerFreeObservation = await remoteJson<Packet[]>(
-      withRemoteEnv({ BROOD_PROVIDER: "provider-must-not-be-called" }, cli("observe --scope /srv/scenario"))
+      withRemoteEnv({ BROOD_PROVIDER: "provider-must-not-be-called" }, cli(`observe --scope '${scope}'`))
     );
     expect(providerFreeObservation.map((packet) => packet.canonical_hash).sort()).toEqual(packets.map((packet) => packet.canonical_hash).sort());
 
-    const assessment = await remoteJson<{ status: string; findings: Finding[] }>(
+    const reassessment = await remoteJson<{ status: string; coverage: string; findings: Finding[]; undetected: Undetected[] }>(
       withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("assess")), packets
     );
-    expect(assessment.status).toBe("ok");
-    expect(assessment.findings.every((finding) => finding.evidence && finding.coverage)).toBe(true);
+    // The scenario declares its own coverage. `assess` reports the aggregate packet
+    // coverage, so a degraded filesystem scan must read as partial — asserting "ok" there
+    // would be asserting that the scan lies.
+    const degradedScan = packets.some((packet) => packet.coverage !== "complete-within-scope");
+    expect(reassessment.status).toBe(degradedScan ? "partial" : "ok");
+    if (degradedScan) {
+      expect(packets.some((packet) => packet.coverage === "partial")).toBe(true);
+    } else if (expectedCoverage === "complete-within-scope") {
+      expect(reassessment.coverage).toBe("complete-within-scope");
+      expect(packets.flatMap((packet) => packet.errors)).toEqual([]);
+    } else {
+      // `partial-by-design` without a degraded scan: the declared gap is a collector
+      // contract (e.g. `partial` — the packages tool is missing), not a filesystem
+      // failure. It must still be named rather than read as a clean machine.
+      expect(reassessment.undetected.length).toBeGreaterThan(0);
+    }
+    expect(reassessment.findings.every((finding) => finding.evidence && finding.coverage)).toBe(true);
 
     // S1 — a planted broken symlink is a fact, not a scan failure.
-    const symlinkFacts = packets.flatMap((packet) => packet.facts).filter((fact) => fact.kind === "filesystem.symlink");
-    expect(symlinkFacts.length).toBeGreaterThan(0);
-    expect(symlinkFacts.some((fact) => fact.target_exists === false)).toBe(true);
-    const dirtyBusiness = await remoteJson<Packet[]>(cli("observe --scope /srv/scenario/dirty-business"));
-    expect(dirtyBusiness.map((packet) => packet.coverage)).toEqual(["complete-within-scope"]);
-    expect(dirtyBusiness[0]?.errors).toEqual([]);
+    if (declaredKinds.has("filesystem.broken_symlink")) {
+      const symlinkFacts = packets.flatMap((packet) => packet.facts).filter((fact) => fact.kind === "filesystem.symlink");
+      expect(symlinkFacts.length).toBeGreaterThan(0);
+      expect(symlinkFacts.some((fact) => fact.target_exists === false)).toBe(true);
+    }
 
     // S1 — no scan is ever labelled incomplete without saying why.
     for (const packet of packets) {
@@ -96,7 +130,7 @@ describe("L2 — SSH command integration", () => {
     }
 
     const proposals = await remoteJson<{ status: string; proposals: Array<Record<string, unknown>> }>(
-      withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("propose")), assessment.findings
+      withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("propose")), reassessment.findings
     );
     expect(proposals.status).toBe("ok");
     expect(proposals.proposals.every((proposal) =>
@@ -109,7 +143,7 @@ describe("L2 — SSH command integration", () => {
 
     const report = await remoteJson<{ status: string; markdown: string; json: Record<string, unknown> }>(
       withRemoteEnv({ BROOD_PROVIDER: "provider-must-not-be-called" }, cli("report")),
-      { packets, findings: assessment.findings }
+      { packets, findings: reassessment.findings }
     );
     expect(report.status).toBe("ok");
     expect(report.markdown).toContain("# Brood observation report");
@@ -119,11 +153,11 @@ describe("L2 — SSH command integration", () => {
 
 describe("L3 — detection from observed facts", () => {
   it("cites an observed packet fact for every finding, never the scenario manifest", () => {
-    expect(findings.length).toBeGreaterThan(0);
     const observed = new Map<string, { fact: Record<string, unknown>; packetHash: string }>();
     for (const packet of packets) {
       for (const fact of packet.facts) observed.set(String(fact.path), { fact, packetHash: packet.canonical_hash });
     }
+    expect(findings.every((finding) => finding.kind === "storage.headroom_low")).toBe(true);
     for (const finding of findings) {
       const evidencePath = String(finding.evidence.path ?? "");
       expect(evidencePath.length).toBeGreaterThan(0);
@@ -136,93 +170,88 @@ describe("L3 — detection from observed facts", () => {
       expect(finding.kind).toBe("storage.headroom_low");
       expect(finding.fault_id).toBe("storage.near_full");
       expect(finding.measured).toMatchObject({ mount: "/srv/data", threshold: 80 });
+      expect(Number(finding.measured?.use_percent)).toBeGreaterThanOrEqual(80);
       expect(finding.coverage).toBeDefined();
     }
     expect(findings.some((finding) => /healthy|all[- ]clear/i.test(finding.fault_id))).toBe(false);
+    // A declared storage fault must produce a detection; without one silence is correct.
+    if (declaredKinds.has("storage.headroom_low")) expect(findings.length).toBeGreaterThan(0);
+    else expect(findings).toEqual([]);
   });
 
   it("detects storage headroom over the threshold and stays silent below it", async () => {
-    const business = await observeAndAssess("/srv/scenario/dirty-business");
-    const businessStorage = storageFindings(business.assessment);
-    expect(businessStorage).toHaveLength(1);
-    expect(businessStorage[0]).toMatchObject({
-      fault_id: "storage.near_full",
-      kind: "storage.headroom_low",
-      measured: { mount: "/srv/data", use_percent: 93, threshold: 80 }
-    });
-    expect(businessStorage[0]!.evidence.path).toBe("/srv/scenario/dirty-business/etc/brood/packets/df-h.txt");
-
-    const hostile = await observeAndAssess("/srv/scenario/hostile");
-    expect(storageFindings(hostile.assessment).map((finding) => finding.evidence.path)).toEqual([
-      "/srv/scenario/hostile/etc/brood/packets/df-h.txt"
-    ]);
-
-    // Negative control: 57% used never crosses an 80% line.
-    for (const name of ["clean", "dirty-dev", "partial"]) {
-      const scoped = await observeAndAssess(`/srv/scenario/${name}`);
-      expect(storageFindings(scoped.assessment), name).toEqual([]);
-      for (const finding of scoped.assessment.findings) {
-        expect(String(finding.evidence.path ?? "").endsWith("/scenario.yaml")).toBe(false);
-      }
+    const storage = storageFindings(assessment);
+    // Evidence paths come from the declarations that apply to this scenario (its own
+    // manifest plus the `extends:` chain), expressed against the mount root.
+    const expectedEvidence = new Set(
+      declaredChain
+        .filter((fault) => fault.expectAs === "storage.headroom_low")
+        .map((fault) => `${scope}/${fault.evidence}`)
+    );
+    if (expectedEvidence.size === 0) {
+      expect(storage).toEqual([]);
+    } else {
+      expect(storage.length).toBeGreaterThan(0);
+      for (const finding of storage) expect(expectedEvidence.has(String(finding.evidence.path))).toBe(true);
     }
 
-    const partial = await observeAndAssess("/srv/scenario/partial");
-    expect(partial.assessment.undetected).toEqual([
-      expect.objectContaining({
-        fault_id: "collector.packages_tool_missing",
-        reason: expect.stringContaining("no detector for kind 'collector.unsupported'")
-      })
-    ]);
-  });
-
-  it("honours an explicit threshold instead of resolving the documents' contradiction", async () => {
-    const business = await observeAndAssess("/srv/scenario/dirty-business");
-    const strict = await remoteJson<Assessment>(
-      withRemoteEnv({ BROOD_PROVIDER: "fake", BROOD_STORAGE_THRESHOLD_PERCENT: "95" }, cli("assess")),
-      business.packets
-    );
-    expect(storageFindings(strict)).toEqual([]);
-    expect(strict.undetected).toContainEqual(expect.objectContaining({
-      fault_id: "storage.near_full",
-      expect_as: "storage.headroom_low",
-      reason: "detector ran, threshold not crossed"
-    }));
+    // An explicit 95 % threshold leaves the same capture under the line. Only a scenario
+    // that declares the storage fault itself can assert the `undetected` entry: the CLI
+    // cross-checks the manifest embedded in the packet, and an inherited declaration lives
+    // in its parent's manifest (roadmap S5 records the seam).
+    const declaredStorage = declared.filter((fault) => fault.expectAs === "storage.headroom_low");
+    if (declaredStorage.length > 0) {
+      const strict = await remoteJson<Assessment>(
+        withRemoteEnv({ BROOD_PROVIDER: "fake", BROOD_STORAGE_THRESHOLD_PERCENT: "95" }, cli("assess")),
+        packets
+      );
+      expect(storageFindings(strict)).toEqual([]);
+      expect(strict.undetected).toContainEqual(expect.objectContaining({
+        fault_id: "storage.near_full",
+        expect_as: "storage.headroom_low",
+        reason: "detector ran, threshold not crossed"
+      }));
+    }
   });
 
   it("reports every declared fault without a finding as undetected, with a reason", async () => {
-    const declared = await declaredFaults();
-    expect(declared.length).toBeGreaterThan(findings.length);
-
     // Invent none: every detected kind is one the scenario tree declares.
-    const declaredKinds = new Set(declared.map((fault) => fault.expectAs));
     for (const finding of findings) expect(declaredKinds.has(finding.kind)).toBe(true);
 
-    // Exactly one declaration is backed by a detection (the full tree has two 93% captures).
-    const storageDeclarations = declared.filter((fault) => fault.expectAs === "storage.headroom_low");
-    expect(storageDeclarations).toHaveLength(1);
-    expect(findings.map((finding) => finding.fault_id).sort()).toEqual(["storage.near_full", "storage.near_full"]);
-    expect(assessment.undetected).toHaveLength(declared.length - 1);
+    if (declared.length === 0) {
+      expect(findings).toEqual([]);
+      expect(assessment.undetected).toEqual([]);
+      return;
+    }
+    expect(declared.length).toBeGreaterThan(findings.length);
+
+    // Exactly one declaration is backed by a detection: the mounted scenario is one
+    // machine, so one capture and one finding — the count is derived, not assumed.
+    const detectedEvidence = new Set(findings.map((finding) => String(finding.evidence.path)));
+    expect(assessment.undetected).toHaveLength(
+      declared.filter((fault) => !detectedEvidence.has(`${scope}/${fault.evidence}`)).length
+    );
 
     for (const entry of assessment.undetected) {
       expect(entry.fault_id.length).toBeGreaterThan(0);
       expect(entry.expect_as.length).toBeGreaterThan(0);
       expect(entry.evidence.length).toBeGreaterThan(0);
       expect(entry.reason.trim().length).toBeGreaterThan(0);
-      // Storage was detected, so every remaining gap names the missing detector.
-      expect(entry.reason).toContain(`no detector for kind '${entry.expect_as}'`);
+      // A detection that ran without crossing the line says so; anything else names the gap.
+      if (entry.expect_as === "storage.headroom_low") expect(entry.reason).toBe("detector ran, threshold not crossed");
+      else expect(entry.reason).toContain(`no detector for kind '${entry.expect_as}'`);
     }
 
     // No declaration is silently dropped: each is either detected or listed as undetected.
-    expect(assessment.undetected.some((entry) => entry.fault_id === "storage.near_full")).toBe(false);
     for (const fault of declared) {
-      const accounted = findings.some((finding) => finding.fault_id === fault.id)
+      const accounted = detectedEvidence.has(`${scope}/${fault.evidence}`)
         || assessment.undetected.some((entry) => entry.fault_id === fault.id);
       expect(accounted, `declared fault ${fault.id} is neither detected nor undetected`).toBe(true);
     }
   });
 
   it("does not emit healthy findings for an incomplete/unsupported scan", async () => {
-    const unsupportedPackets = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli("observe --scope /srv/scenario")));
+    const unsupportedPackets = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli(`observe --scope '${scope}'`)));
     const result = await remoteJson<Assessment>(
       withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem", BROOD_PROVIDER: "fake" }, cli("assess")),
       unsupportedPackets
@@ -240,7 +269,7 @@ describe("L4 — interruption, approval and recovery", () => {
   it("recovers from an interrupted observe, rejects expired/altered approvals, reverts, and reports a removed collector", async () => {
     const env = requireEnvironment();
     const marker = `${env.stateDir}/observe-paused.marker`;
-    const paused = spawnRemote(withRemoteEnv({ BROOD_TEST_PAUSE_MARKER: marker }, cli("observe --scope /srv/scenario")));
+    const paused = spawnRemote(withRemoteEnv({ BROOD_TEST_PAUSE_MARKER: marker }, cli(`observe --scope '${scope}'`)));
     const deadline = Date.now() + 20_000;
     let pidText = "";
     while (Date.now() < deadline) {
@@ -253,7 +282,7 @@ describe("L4 — interruption, approval and recovery", () => {
     expect(killed.code).toBe(0);
     const interrupted = await paused.result;
     expect(interrupted.code).not.toBe(0);
-    const recovered = await remoteJson<Packet[]>(cli("observe --scope /srv/scenario"));
+    const recovered = await remoteJson<Packet[]>(cli(`observe --scope '${scope}'`));
     expect(recovered.map((p) => p.canonical_hash).sort()).toEqual(packets.map((p) => p.canonical_hash).sort());
     const reassessed = await remoteJson<{ findings: Finding[] }>(
       withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("assess")), recovered
@@ -296,24 +325,43 @@ describe("L4 — interruption, approval and recovery", () => {
     const content = await remote(`cat '${env.mutableRoot}/proof.txt'`);
     expect(content.stdout).toBe("before\n");
 
-    const unsupported = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli("observe --scope /srv/scenario")));
+    const unsupported = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli(`observe --scope '${scope}'`)));
     expect(unsupported[0]?.coverage).toBe("unsupported");
     expect(unsupported[0]?.facts).toEqual([]);
     expect(unsupported[0]?.problems.length).toBeGreaterThan(0);
   });
 });
 
-describe("blast radius — scenario state equality", () => {
-  it("leaves the fixture tree byte-for-byte and mode-for-mode unchanged", async () => {
-    expect(await scenarioSnapshotAfter()).toBe(await scenarioSnapshotBefore());
+describe("fixture materialisation", () => {
+  it("mounts real git repositories, not `.git.fixture` placeholders", async () => {
+    const repositories = await remote(`find '${scope}/srv/projects' -type d -name .git -prune -print`);
+    expect(repositories.code).toBe(0);
+    expect(repositories.stdout.trim().split("\n").filter(Boolean).length).toBeGreaterThan(0);
+    const placeholder = await remote(`test -f '${scope}/srv/projects/portal/.git/HEAD'`);
+    expect(placeholder.code).toBe(0);
+    const leftovers = await remote(`find '${scope}' -type d -name .git.fixture -print`);
+    expect(leftovers.stdout.trim()).toBe("");
+  });
+
+  // Only `hostile` declares the permission faults; the run is materialised, so the modes
+  // must be in the mount and actually deny the `brood` user.
+  it.skipIf(scenarioName !== "hostile")("applies the hostile permission faults in the mounted copy", async () => {
+    for (const target of [`${scope}/home/keeper/locked`, `${scope}/srv/isolated/unreadable`]) {
+      const mode = await remote(`stat -c %a '${target}'`);
+      expect(mode.code, mode.stderr).toBe(0);
+      expect(mode.stdout.trim()).toBe("0");
+      const listing = await remote(`ls '${target}'`);
+      expect(listing.code).not.toBe(0);
+      expect(listing.stderr).toMatch(/permission denied/i);
+    }
   });
 });
 
-async function observeAndAssess(scope: string): Promise<{ packets: Packet[]; assessment: Assessment }> {
-  const scoped = await remoteJson<Packet[]>(cli(`observe --scope '${scope}'`));
-  const result = await remoteJson<Assessment>(withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("assess")), scoped);
-  return { packets: scoped, assessment: result };
-}
+describe("blast radius — scenario state equality", () => {
+  it("leaves the mounted scenario byte-for-byte and mode-for-mode unchanged", async () => {
+    expect(await scenarioSnapshotAfter()).toBe(await scenarioSnapshotBefore());
+  });
+});
 
 function storageFindings(result: Assessment): Finding[] {
   return result.findings.filter((finding) => finding.kind === "storage.headroom_low");

@@ -81,7 +81,7 @@ session). Cheap to fix; currently it hides whether recovery works at all.
 | image ↔ suite | The image has **no Node**, but `broodctl` is a Node program; and no key is baked, but the harness expects one authorised. Neither part is wrong — the parts were briefed independently. Fixed with a derived `Dockerfile.test` (Node 24 + `broodctl` + a throwaway pubkey, build-only, never delivered) |
 | image ↔ suite | The image has **no `CMD`/`ENTRYPOINT`** — compose supplies it. `docker run <image>` starts `bash` and exits. Fixed in the derived test image: `ENTRYPOINT ["/usr/sbin/sshd","-D",…]` plus a build-time host key and a local `sshd_config` |
 | suite ↔ fixtures | The CLI's manifest parser accepts `id`/`name`/`key`, `kind`/`type`/`check`, `path`/`target`/`file`. The fixtures use `expect_as` and `discoverable_by` — **neither is read**. The parser tolerates them (declares by `id`), so it works, but `expect_as` is silently discarded |
-| fixtures ↔ suite | `hostile` relies on `d---------` directories. Zip preserves the mode; **git does not**, and a non-root copy fails outright. `materialize.sh` now exists and re-applies both faults after checkout, but nothing runs it yet |
+| fixtures ↔ suite | `hostile` relies on `d---------` directories. Zip preserves the mode; **git does not**, and a non-root copy fails outright. `.git.fixture` directories have the mirror-image problem: a checkout has no repositories. **Fixed** — `materialize.sh` re-applies both and the integration harness now runs it on a throwaway copy of the one scenario it mounts (S5) |
 | suite ↔ machine model | The harness starts the container without `--hostname`, so `hostname` returns a container id inside a thing that is meant not to look like a container |
 
 ## One rule that was softened without asking
@@ -148,13 +148,35 @@ detector must not resolve.
 
 The suite's own assertion is now falsifiable: L3 requires every finding's evidence path to be an
 observed fact with a matching hash and explicitly forbids `scenario.yaml` as evidence. `storage.near_full`
-is found for `dirty-business` and `hostile` (93 % on `/srv/data`) and **absent** for `clean`,
-`dirty-dev` and `partial` (57 %) — the negative control is driven by separate scoped observations.
+is found on `dirty-business` and `hostile` (93 % on `/srv/data`, each on its own mount) and **absent**
+for `clean`, `dirty-dev` and `partial` (57 %) — the negative control is a separate mount, not a scoped
+sub-walk of one shared tree.
 
 **Honest limit:** only storage headroom is detected. Every other declared fault is returned in
 `undetected` with the gap named (`no detector for kind 'service.unit_invalid' (…)`), and a detector
 that ran without crossing its threshold says `detector ran, threshold not crossed`. L3 still proves
 the traceability and the negative control — not that the remaining planted faults are detectable.
+
+### Defect 5 — the harness mounted a checkout, not the delivered machine (fixed 2026-11-14)
+
+`fixtures/materialize.sh` re-applies the two things a git checkout loses (`.git.fixture` → `.git`, and
+`hostile`'s `chmod 000` directories), but nothing ran it. The harness mounted `fixtures/` as checked
+out, so `hostile` was not hostile and the project probes saw plain directories. Worse, the script
+resolved its root from its own location, so wiring it in as-is would have mutated the working tree.
+
+`materialize.sh` now takes `--root <dir>` (default: its own directory, so the documented command is
+unchanged). The harness copies one scenario (`BROOD_SCENARIO`, default `dirty-business`) from the
+fixtures root into `/tmp/brood-vitest-scenario-<rand>`, materialises **the copy**, mounts that at
+`/srv/scenario:ro`, and deletes it at teardown (a leftover copy fails the run like a leftover
+container). A guard test asserts the mounted tree really is materialised — real `.git` directories, no
+`.git.fixture` left, and for `hostile` the mode-000 directories actually deny `brood`.
+
+**Honest limits:** a snapshot cannot read below a mode-000 directory, so the blast-radius walk records
+that barrier (with its mode) as `directory-unreadable` instead of pretending it is empty — a mode change
+on the barrier is still detected, its contents are simply unobservable by design. And `partial` is
+`partial-by-design` at the *collector-contract* level (its packages tool is missing), so its filesystem
+scan is legitimately `complete-within-scope` and `assess` returns `ok` with the declared gap in
+`undetected`; only `hostile`, whose partiality is a real unreadable directory, reports `partial`.
 
 ### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
 
@@ -171,7 +193,10 @@ machine and everything about a test harness that *looked* wired up.
    the whole design rests on.
 2. ~~Add one real detector (storage headroom is the easiest: compare `df` facts against the threshold) and re-point L3's evidence at the fact, not the manifest. Until then L3 is decoration.~~ Done — one detector, traceable evidence, a working negative control, and the rest honestly `undetected`.
 3. ~~Fix the L4 kill helper.~~ Done — it was never the helper; see defect 3.
-4. `fixtures/materialize.sh` exists but is not wired into the test run. Note for when it is: once the
-   `hostile` permissions are applied, a whole-`fixtures` scope correctly reports `partial`, so the
-   harness should point at one scenario per run rather than the whole tree.
+4. ~~`fixtures/materialize.sh` exists but is not wired into the test run.~~ Done — the harness copies one
+   scenario per run (`BROOD_SCENARIO`, default `dirty-business`), materialises the copy and mounts that,
+   so a fresh clone is as hostile as the zip and the checkout is never written. A guard test asserts the
+   materialised state (real `.git` directories; `hostile`'s mode-000 directories deny `brood`). Remaining
+   seam: the CLI cross-checks only the manifest inside the packet, so a fault a scenario *inherits*
+   (`extends:`) is detected but not listed as declared.
 5. Only then consider the ambient loop — nothing here yet proves a cycle can run unattended.

@@ -1,9 +1,20 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { parseScenarioFaults, canonicalStringify, sha256, type DeclaredFault } from "../../cli/src/lib.ts";
+
+/** Where the harness mounts the materialised scenario inside the container. */
+export const REMOTE_SCENARIO_ROOT = "/srv/scenario";
+/** Default scenario: the fully declared business machine. */
+export const DEFAULT_SCENARIO = "dirty-business";
+
+/** Scenario mounted by this run (readable at collection time, before any hook runs). */
+export function requestedScenario(): string {
+  return (process.env.BROOD_SCENARIO ?? "").trim() || DEFAULT_SCENARIO;
+}
 
 export interface CommandResult {
   code: number;
@@ -14,7 +25,14 @@ export interface CommandResult {
 export interface BroodEnvironment {
   containerId: string;
   containerName: string;
+  /** Host path of the materialised scenario mounted at `/srv/scenario`. */
   scenarioDir: string;
+  /** Throwaway directory that holds `scenarioDir`; removed at teardown. */
+  workingRoot: string;
+  /** The fixture tree as checked out (`BROOD_SCENARIO_DIR`) — never touched by a run. */
+  fixturesRoot: string;
+  /** Scenario name from `BROOD_SCENARIO` (default `dirty-business`). */
+  scenarioName: string;
   sshKey: string;
   secret: string;
   remoteCli: string;
@@ -110,7 +128,17 @@ async function snapshotDirectory(root: string): Promise<string> {
     }
     if (stats.isDirectory()) {
       entries.push({ path: relative, type: "directory", mode: stats.mode & 0o777, sha256: sha256("") });
-      const children = (await fs.readdir(target)).sort();
+      let children: string[];
+      try {
+        children = (await fs.readdir(target)).sort();
+      } catch (error) {
+        // `hostile` plants mode-000 directories. A snapshot cannot read below one, so it
+        // records the barrier (with its mode) instead of failing or pretending it is empty;
+        // a mode change on the barrier itself still shows up in the comparison.
+        if ((error as NodeJS.ErrnoException).code !== "EACCES" && (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+        entries.push({ path: relative, type: "directory-unreadable", mode: stats.mode & 0o777, sha256: sha256("unreadable") });
+        return;
+      }
       for (const child of children) await visit(path.join(target, child));
       return;
     }
@@ -122,11 +150,24 @@ async function snapshotDirectory(root: string): Promise<string> {
   return sha256(canonicalStringify(entries));
 }
 
+/**
+ * `hostile` plants mode-000 directories. They hold no scenario manifest, so a walk that
+ * cannot enter one has seen everything it needs — the mode itself is the fault.
+ */
+async function scenarioTreeChildren(directory: string): Promise<Dirent[]> {
+  try {
+    return await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM") return [];
+    throw error;
+  }
+}
+
 async function listDeclaredFaultKeys(root: string): Promise<string[]> {
   const keys: string[] = [];
   const visit = async (directory: string): Promise<void> => {
-    const children = await fs.readdir(directory, { withFileTypes: true });
-    children.sort((a, b) => a.name.localeCompare(b.name, "en"));
+    const children = (await scenarioTreeChildren(directory)).sort((a, b) => a.name.localeCompare(b.name, "en"));
     for (const child of children) {
       const target = path.join(directory, child.name);
       if (child.isDirectory()) await visit(target);
@@ -148,8 +189,7 @@ export async function declaredFaultKeys(): Promise<string[]> {
 async function listDeclaredFaults(root: string): Promise<Array<DeclaredFault & { scenario: string }>> {
   const records: Array<DeclaredFault & { scenario: string }> = [];
   const visit = async (directory: string): Promise<void> => {
-    const children = await fs.readdir(directory, { withFileTypes: true });
-    children.sort((a, b) => a.name.localeCompare(b.name, "en"));
+    const children = (await scenarioTreeChildren(directory)).sort((a, b) => a.name.localeCompare(b.name, "en"));
     for (const child of children) {
       const target = path.join(directory, child.name);
       if (child.isDirectory()) await visit(target);
@@ -168,14 +208,72 @@ export async function declaredFaults(): Promise<Array<DeclaredFault & { scenario
   return listDeclaredFaults(requireEnvironment().scenarioDir);
 }
 
+/**
+ * Declarations that apply to the mounted scenario, following its `extends:` chain.
+ * A derived scenario (e.g. `hostile extends dirty-business`) keeps the inherited faults
+ * "declared in their source manifests", so a cross-check that only walked the mount
+ * could not tell an invented kind from an inherited one. Reading the chain in the fixture
+ * tree (not the mount) keeps that honest without adding anything the fixtures do not say.
+ */
+export async function declaredFaultChain(): Promise<Array<DeclaredFault & { scenario: string }>> {
+  const environment = requireEnvironment();
+  const records: Array<DeclaredFault & { scenario: string }> = [];
+  const seen = new Set<string>();
+  let name: string | null = environment.scenarioName;
+  while (name && !seen.has(name)) {
+    seen.add(name);
+    let content: string;
+    try {
+      content = await fs.readFile(path.join(environment.fixturesRoot, name, "scenario.yaml"), "utf8");
+    } catch {
+      break;
+    }
+    for (const fault of parseScenarioFaults(content)) records.push({ ...fault, scenario: name });
+    const parent = /^extends:[ \t]*(\S+)[ \t]*$/m.exec(content)?.[1];
+    name = parent && parent !== "null" ? parent : null;
+  }
+  return records;
+}
+
+/** `expected_coverage` as declared by the mounted scenario's manifest. */
+export async function declaredExpectedCoverage(): Promise<string> {
+  const content = await fs.readFile(path.join(requireEnvironment().scenarioDir, "scenario.yaml"), "utf8");
+  return /^expected_coverage:[ \t]*(\S+)[ \t]*$/m.exec(content)?.[1] ?? "unknown";
+}
+
 export async function startBroodEnvironment(): Promise<void> {
-  const scenarioDir = path.resolve(expandHome(process.env.BROOD_SCENARIO_DIR ?? ""));
+  const fixturesRoot = path.resolve(expandHome(process.env.BROOD_SCENARIO_DIR ?? ""));
+  const scenarioName = requestedScenario();
   const sshKey = path.resolve(expandHome(process.env.BROOD_SSH_KEY ?? "~/.ssh/id_ed25519"));
   const image = process.env.BROOD_IMAGE;
   if (!image) throw new Error("L2-L4 require BROOD_IMAGE, the part-1 image with broodctl installed");
   if (!process.env.BROOD_SCENARIO_DIR) throw new Error("L2-L4 require BROOD_SCENARIO_DIR pointing to the part-2 fixtures tree");
-  await fs.access(scenarioDir);
+  await fs.access(fixturesRoot);
   await fs.access(sshKey);
+
+  // One scenario per run, materialised in a throwaway copy. `materialize.sh` renames
+  // `.git.fixture` back to `.git` and re-applies the `hostile` modes — both are lost to a
+  // git checkout — and it must never run against the checkout the developer is working in.
+  const sourceDir = path.join(fixturesRoot, scenarioName);
+  const sourceStats = await fs.stat(sourceDir).catch(() => undefined);
+  if (!sourceStats?.isDirectory()) {
+    throw new Error(`BROOD_SCENARIO must name a scenario directory under ${fixturesRoot}: ${scenarioName}`);
+  }
+  const workingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "brood-vitest-scenario-"));
+  const scenarioDir = path.join(workingRoot, scenarioName);
+  const copied = runLocal("cp", ["-a", "--", sourceDir, scenarioDir]);
+  if (copied.code !== 0) {
+    runLocal("rm", ["-rf", workingRoot]);
+    throw new Error(`could not copy scenario ${scenarioName} to ${workingRoot}: ${copied.stderr || copied.stdout}`);
+  }
+  const materialize = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "fixtures", "materialize.sh");
+  const materialised = runLocal("bash", [materialize, "--root", workingRoot, scenarioName]);
+  if (materialised.code !== 0) {
+    runLocal("chmod", ["-R", "u+rwX", workingRoot]);
+    runLocal("rm", ["-rf", workingRoot]);
+    throw new Error(`could not materialise scenario ${scenarioName}: ${materialised.stderr || materialised.stdout}`);
+  }
+
   const containerName = `brood-vitest-${process.pid}-${randomBytes(4).toString("hex")}`;
   const secret = randomBytes(32).toString("hex");
   const stateDir = "/tmp/brood-vitest-state";
@@ -184,6 +282,9 @@ export async function startBroodEnvironment(): Promise<void> {
     containerId: "",
     containerName,
     scenarioDir,
+    workingRoot,
+    fixturesRoot,
+    scenarioName,
     sshKey,
     secret,
     remoteCli: process.env.BROOD_REMOTE_CLI ?? "/usr/local/bin/broodctl",
@@ -197,7 +298,12 @@ export async function startBroodEnvironment(): Promise<void> {
       BROOD_APPROVAL_SECRET: secret
     }
   };
-  scenarioHashBefore = await snapshotDirectory(scenarioDir);
+  try {
+    scenarioHashBefore = await snapshotDirectory(scenarioDir);
+  } catch (error) {
+    await stopBroodEnvironment();
+    throw error;
+  }
   const args = [
     "run", "--detach", "--name", containerName,
     "--publish", "127.0.0.1:2222:22",
@@ -211,12 +317,13 @@ export async function startBroodEnvironment(): Promise<void> {
   if (started.code !== 0) {
     const cleanup = runLocal("docker", ["rm", "--force", containerName]);
     const inspect = runLocal("docker", ["inspect", containerName]);
-    environment = undefined;
+    let copyCleanup = "";
+    try { await stopBroodEnvironment(); } catch (error) { copyCleanup = (error as Error).message; }
     if (inspect.code === 0) throw new Error(`container leak detected after failed startup: ${containerName}`);
     if (cleanup.code !== 0 && !/no such container|not found/i.test(cleanup.stderr + cleanup.stdout)) {
       throw new Error(`startup failed and cleanup could not be verified: ${cleanup.stderr || cleanup.stdout}`);
     }
-    throw new Error(`could not start part-1 image with Docker: ${started.stderr || started.stdout}`);
+    throw new Error(`could not start part-1 image with Docker: ${started.stderr || started.stdout}${copyCleanup ? ` (${copyCleanup})` : ""}`);
   }
   environment.containerId = started.stdout.trim();
   try {
@@ -244,18 +351,25 @@ async function waitForSsh(): Promise<void> {
 }
 
 export async function stopBroodEnvironment(): Promise<void> {
-  if (!environment?.containerId) {
-    environment = undefined;
-    return;
-  }
-  const id = environment.containerId;
-  let cleanupError: string | undefined;
-  const removed = runLocal("docker", ["rm", "--force", id]);
-  if (removed.code !== 0) cleanupError = removed.stderr || removed.stdout || "docker rm failed";
-  const inspected = runLocal("docker", ["inspect", id]);
-  if (inspected.code === 0) cleanupError = `container leak detected: ${id} still exists`;
+  const current = environment;
   environment = undefined;
-  if (cleanupError) throw new Error(cleanupError);
+  if (!current) return;
+  const failures: string[] = [];
+  if (current.containerId) {
+    const id = current.containerId;
+    const removed = runLocal("docker", ["rm", "--force", id]);
+    if (removed.code !== 0) failures.push(removed.stderr || removed.stdout || `docker rm failed for ${id}`);
+    const inspected = runLocal("docker", ["inspect", id]);
+    if (inspected.code === 0) failures.push(`container leak detected: ${id} still exists`);
+  }
+  if (current.workingRoot) {
+    // The materialised copy can contain mode-000 directories; `rm -rf` needs traversal.
+    runLocal("chmod", ["-R", "u+rwX", current.workingRoot]);
+    const removed = runLocal("rm", ["-rf", current.workingRoot]);
+    if (removed.code !== 0) failures.push(`scenario copy cleanup failed: ${removed.stderr || removed.stdout}`);
+    else if (existsSync(current.workingRoot)) failures.push(`scenario copy leak detected: ${current.workingRoot} still exists`);
+  }
+  if (failures.length) throw new Error(failures.join("; "));
 }
 
 export async function scenarioSnapshotBefore(): Promise<string> {

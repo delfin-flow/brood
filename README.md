@@ -50,9 +50,28 @@ baked key, while the harness needs both. `suite/Dockerfile.test` builds it:
 cd image && docker build -t brood-image:local .
 cd ../suite && npm run build && ssh-keygen -q -t ed25519 -N '' -f /tmp/brood-keys/id_ed25519
 cp /tmp/brood-keys/id_ed25519.pub testkey.pub && docker build -f Dockerfile.test -t brood-test:local .
-BROOD_IMAGE=brood-test:local BROOD_SCENARIO_DIR=$PWD/../fixtures \
-  BROOD_SSH_KEY=/tmp/brood-keys/id_ed25519 npx vitest run tests/integration --maxWorkers=1
 ```
+
+Then run the integration layers against **one scenario per run** (`BROOD_SCENARIO`, default
+`dirty-business`). The harness copies the scenario to a throwaway directory under `/tmp`, runs
+`fixtures/materialize.sh` on the copy (`.git.fixture` → `.git`, plus the `hostile` permission faults),
+and mounts *that* at `/srv/scenario` — so a fresh clone needs no manual preparation step and the test
+run never mutates the checkout:
+
+```sh
+BROOD_IMAGE=brood-test:local BROOD_SCENARIO_DIR=$PWD/../fixtures \
+  BROOD_SSH_KEY=/tmp/brood-keys/id_ed25519 npm run test:int
+
+# each scenario is its own mount; the expectations come from its scenario.yaml
+for s in clean dirty-dev dirty-business hostile partial; do
+  BROOD_SCENARIO=$s BROOD_IMAGE=brood-test:local BROOD_SCENARIO_DIR=$PWD/../fixtures \
+    BROOD_SSH_KEY=/tmp/brood-keys/id_ed25519 npm run test:int
+done
+```
+
+`BROOD_SCENARIO_DIR` stays the **fixtures root**; `BROOD_SCENARIO` names the one scenario mounted.
+Mounting a single scenario is deliberate: `hostile` is partial by design once its unreadable
+directories exist, so a whole-tree mount could not tell a planted fault from a broken scan.
 
 ## Non-negotiables this build honours
 
