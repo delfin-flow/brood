@@ -1,7 +1,9 @@
 # Findings — what the verification actually showed
 
-**Verified on this machine, 2026-11-13.** Docker 29.9.3, Node 24.19.0. Everything below was run, not
-read; the external build could not run any of it (its own `NOTES.md` says so under **Unmet**).
+**Verified on this machine, 2026-11-13; re-verified from a fresh clone on 2026-11-14.** Docker 29.9.3,
+Node 24.19.0. Everything below was run, not read; the external build could not run any of it (its own
+`NOTES.md` says so under **Unmet**). The clean-room run, its commands and its counts are recorded in
+`docs/verification-2026-11-14.md`.
 
 ---
 
@@ -14,14 +16,14 @@ read; the external build could not run any of it (its own `NOTES.md` says so und
 2. **`up.sh` is better than briefed.** It generates keys *inside the image* (only Docker needed on the
    host), **pins `known_hosts`** so there is no trust-on-first-use prompt, and its readiness check is an
    **authenticated SSH command** — not a port probe, and not a `sleep`-and-hope.
-3. **The fixtures are real.** Five scenarios, 1377 files, ten declared faults in `dirty-business` with
-   `id` / `expect_as` / `evidence` / `discoverable_by`. They are a genuine small-business machine:
-   contradictory `AGENTS.md` and cockpit notes, an invalid systemd unit, an undocumented cron job, a
-   never-restored backup, a rotted workspace charter.
+3. **The fixtures are real.** Five scenarios, 836 tracked entries (832 files + 4 symlinks), ten
+   declared faults in `dirty-business` with `id` / `expect_as` / `evidence` / `discoverable_by`. They
+   are a genuine small-business machine: contradictory `AGENTS.md` and cockpit notes, an invalid
+   systemd unit, an undocumented cron job, a never-restored backup, a rotted workspace charter.
 4. **The honesty rule survives the trip.** Running with one collector absent yields `unsupported`, never
    an empty success. L3 and blast radius pass.
-5. **The suite is free.** 18 tests (L0+L1) run with no Docker, no network, no key, in 280 ms.
-   `tsc --noEmit` is clean.
+5. **The suite is free.** 39 tests (L0 24 + L1 15) run with no Docker, no network, no key, in about
+   500 ms — re-run inside `unshare -rn` with the same result. `tsc --noEmit` is clean.
 
 ## Defects found — three, in order of seriousness
 
@@ -108,7 +110,8 @@ any unobserved fact shape. A disabled collector reports `unsupported` with the r
 The contract is written down in `docs/packet-schema.md`.
 
 Verified on this machine: `dirty-business` → `complete-within-scope` with the broken symlink present
-as a fact; **L2 green**, L3 green, blast radius green. `npm test` = **27** offline tests (was 18).
+as a fact; **L2 green**, L3 green, blast radius green. `npm test` = **39** offline tests today
+(27 at that point, 18 before S2 and S5).
 
 ### Defect 3 — the failpoint never held the process (fixed 2026-11-14)
 
@@ -186,6 +189,26 @@ session starts with a fresh environment. Propose/apply therefore failed with `BR
 be set`, one assertion after the coverage bug had been fixed. The harness now passes its provisioned
 state on every remote CLI call (`suite/tests/support/remote.ts`). This defects nothing about the
 machine and everything about a test harness that *looked* wired up.
+
+## Defects found by the 2026-11-14 clean-room run
+
+Found by rebuilding everything from a **fresh clone** rather than from the working checkout; all three
+are delivery/recipe defects, not behaviour defects. Detail and reproduction in
+`docs/verification-2026-11-14.md`.
+
+1. **A fresh clone cannot build the test image.** `suite/Dockerfile.test` does
+   `COPY sshd_config.test`, which nothing generates and `.gitignore` excludes; the build fails with
+   `failed to compute cache key: "/sshd_config.test": not found`. Workaround now in `README.md`:
+   `cp image/sshd_config suite/sshd_config.test`. Owner decision: keep the copy step, or commit a
+   distinct file and un-ignore it.
+2. **`up.sh` from a fresh clone delivers an empty `/srv/scenario`.** `image/scenario/` is the compose
+   bind-mount source, git-ignored and absent in a clone; Docker creates it root-owned and empty. The
+   author's working checkout hides this with an ignored symlink to `../fixtures/dirty-business`. Not
+   fixed — populating the delivered machine is a handover decision, and baking fixtures in would break
+   the no-`COPY` rule.
+3. **`down.sh` also removes the derived test image.** `docker compose down --rmi all` removed
+   `brood-test:local` alongside `brood-image:local`; the documented order now says to build the test
+   image after a teardown.
 
 ## What to do next, in order
 

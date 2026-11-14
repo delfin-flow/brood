@@ -15,10 +15,14 @@ serves: the "business operations workspace" offer (agentic operations).
 
 - **The three zips landed and are assembled** under the repository root: `image/` (the machine),
   `fixtures/` (five dirty scenarios), `suite/` (`broodctl` + Vitest). Committed.
-- **Verified on this machine** (Docker 29.9.3, Node 24.19.0): `npm test` = **39 tests** offline, `tsc
-  --noEmit` clean, **all integration tests pass** — L2, L3 (four cases), L4, the materialisation guard
-  and blast radius; the guard's `hostile` case runs when that scenario is mounted — and the image builds
-  with key-only SSH. All five scenarios were run by hand, one mount each, and all five pass.
+- **Clean-room verified from a fresh clone** (`docs/verification-2026-11-14.md`, commit `83241cb`;
+  Docker 29.9.3, Node 24.19.0): `npm test` = **39 tests** offline (also inside `unshare -rn`, no
+  network), `tsc --noEmit` clean; the delivered image builds with `--no-cache` (310 MB) and serves
+  key-only SSH; the derived test image builds; **all five scenarios pass the integration suite** —
+  `hostile` 9/9, the other four 8 passed / 1 skipped (the hostile-only guard) — and the checkout stays
+  clean. Two delivery gaps were found and recorded in `FINDINGS.md` (the test image needs a
+  `sshd_config.test` that nothing generates; a fresh clone's delivered machine has an empty
+  `/srv/scenario`).
 - **S1 — coverage honesty.** A broken symlink is a fact (`filesystem.symlink`, `target_exists: false`),
   the scan stays `complete-within-scope`, and every non-complete packet carries
   `errors`/`skipped`/`problems` — enforced by `validatePacket`, documented in `docs/packet-schema.md`.
@@ -46,6 +50,9 @@ serves: the "business operations workspace" offer (agentic operations).
   cross-checks only the manifest embedded in the packet.
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that is
   the point of S6, not a current fact.
+- **S6's acceptance names gates that do not exist.** "Ten acceptance gates (A1–A10)" appears only in
+  this roadmap; no A1–A10 document exists in the repository. Whether they get written before S6 starts
+  is an owner decision, recorded here rather than invented.
 
 ## Owner decisions (operator, 2026-11-13)
 
@@ -96,7 +103,9 @@ not copied**. A story's hand-off names the stem; the body lives in the queue.
 |---|---|---|
 | S2 storage-headroom detector | `2026-11-14-01-flash-brood-s2-storage-headroom-detector` | done |
 | S5 fixture materialisation | `2026-11-14-02-flash-brood-s5-fixture-materialisation` | done |
-| v0 acceptance run (not a story — the review gate) | `2026-11-14-03-flash-brood-v0-verification-gate` | open |
+| v0 acceptance run (not a story — the review gate) | `2026-11-14-03-flash-brood-v0-verification-gate` | done — `docs/verification-2026-11-14.md` |
 
 S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); S2 and S5 ran as flash handoffs. Their
-acceptance is met and verified, and each stays 🔄 until the owner confirms it.
+acceptance is met and verified, and each stays 🔄 until the owner confirms it. The v0 acceptance run
+(`docs/verification-2026-11-14.md`) re-verified all of them from a fresh clone; the owner's review
+checklist is in that note's Result.
