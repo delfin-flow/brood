@@ -1,7 +1,7 @@
 # AGENTS.md — Brood
 
-Operating contract for the **Brood** repository. Read this first. Product 2 of the private
-`agentic-os` KB (`products.md` §1): the generalised, autonomous form of the continuity pattern,
+Operating contract for the **Brood** repository. Read this first. The generalised, autonomous form of a workspace-production methodology (ICM/MWP),
+a pattern kept and refined in a private knowledge base that is referenced by name only:
 built open source, simulated only.
 
 ## What this is
@@ -11,8 +11,7 @@ asked to *pamper* — observe honestly, find drift, propose safe changes with re
 nothing that was not approved. The proof is `suite/` (the `broodctl` CLI + a Vitest suite); the world
 is `fixtures/` (five dirty scenarios).
 
-**Nothing here touches a real machine.** The container is the blast radius. Until the ten gates in
-`brood-v0.md` pass, autonomy is a design goal, not a fact.
+**Nothing here touches a real machine.** The container is the blast radius. Until its ten acceptance gates pass, autonomy is a design goal, not a fact.
 
 ## Navigation
 
@@ -21,8 +20,8 @@ is `fixtures/` (five dirty scenarios).
 | What it is, how to run it | `README.md` |
 | What verification actually found | `FINDINGS.md` — the defects and the honest limits |
 | What is done / next | `roadmap/ROADMAP.md` — single source of truth for status |
-| The design contract | `llm_profiles/agentic-os/` → `brood-v0.md`, `testing.md`, `products.md` |
-| Why the offer exists | `delfin-flow-website` → `src/pages/ai-workflow.astro` |
+| The design contract | the ICM/MWP methodology (referenced by name; private, not vendored) |
+| Why the offer exists | the published "business operations workspace" offer |
 
 ## Non-negotiables (project invariants)
 
@@ -37,7 +36,7 @@ is `fixtures/` (five dirty scenarios).
   is a demo, not a test. Every automated test passes at T0 (no provider, no network, no spend).
 - **The KB is the moat; this repo is public.** Nothing private may land here. Reference the methodology
   by name, never by path or content. If a change here teaches the KB something, it goes up to
-  `agentic-os/` as seed enrichment — not copied in.
+  the methodology as seed enrichment — not copied in.
 
 ## Rules
 

@@ -2,19 +2,18 @@
 
 > Single source of truth for what is done and what is next. Story cards follow the ICM/MWP loop:
 > accept → process → hand off. Status: ⬜ todo · 🔄 in progress · ✅ done. Model handoff notes live in
-> the private office queue (`inbox/handoffs/open/<name>`); this file carries only the stem.
+> the author's private handoff queue; this file carries only the stem.
 
 **Scope — v0 simulation:** a disposable Debian 13 machine, the `broodctl` operator, and the proof
-suite that keeps the agent honest. Design contract: `llm_profiles/agentic-os/` (`brood-v0.md`,
-`testing.md`, `products.md`). The published promise this serves:
-`delfin-flow-website` → `src/pages/ai-workflow.astro` (agentic operations).
+suite that keeps the agent honest. Design contract: the ICM/MWP methodology (private, referenced by name). The published promise this
+serves: the "business operations workspace" offer (agentic operations).
 
 **Maturity path:** markdown → optimisation → scripts → binaries → app. Story status: ⬜ todo ·
 🔄 in progress · ✅ done.
 
 ## Current state (2026-11-13)
 
-- **The three zips landed and are assembled** under `/development/brood/`: `image/` (the machine),
+- **The three zips landed and are assembled** under the repository root: `image/` (the machine),
   `fixtures/` (five dirty scenarios), `suite/` (`broodctl` + Vitest). Committed.
 - **Verified on this machine, not claimed from the model:** image builds (310 MB), key-only SSH
   works, **L0+L1 = 18 tests pass offline**, `tsc --noEmit` clean, **blast radius passes**.
@@ -30,14 +29,14 @@ suite that keeps the agent honest. Design contract: `llm_profiles/agentic-os/` (
 
 ## Owner decisions (operator, 2026-11-13)
 
-- **D1** — Brood is **open source**; `agentic-os/` is the **private moat**, Continuity the client asset
-  (`products.md` §1).
+- **D1** — Brood is **open source**; the methodology is the **private moat**, Continuity the client asset
+  (see the methodology's product model).
 - **D2** — the path leads to the **unattended ambient cycle**, gated on the evidence discipline: a
   planted fault must never read as a scan failure before any autonomy is allowed.
 - **D3** — sub-projects already exist that Brood will target as its optimisation step: **Guild** (the
   compiled loop), **Engram** (the deterministic reasoning kernel), **Iterifact** and **Weave** (goal →
   capability → artifact runtimes), **Hippocampus** (deterministic retrieval). Brood does not rebuild
-  them; once it proves a *need*, it references and adopts them (`agentic-os/ASSETS.md`).
+  them; once it proves a *need*, it references and adopts them rather than rebuilding.
 
 ## Stories
 
@@ -48,7 +47,7 @@ suite that keeps the agent honest. Design contract: `llm_profiles/agentic-os/` (
 | S3 | **Fix the L4 interruption test** — repair the kill helper so the signal reaches the right pid, then make recovery actually pass | optimisation | ⬜ | L4 green: interrupted observe leaves a recoverable journal; expired/altered approval refused; revert exercised |
 | S4 | **Manifest ↔ parser agreement** — read `expect_as` and `discoverable_by` (the fixtures already declare them), and drop the tolerance for unknown fields | optimisation | ⬜ | A `scenario.yaml` with a wrong field name fails loudly, not silently |
 | S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; make it part of `just test:int` so a fresh checkout is hostile without a manual step | scripts | ⬜ | A fresh clone + `just test:int` reproduces the same fault set as the zip |
-| S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten gates A1–A10 from `brood-v0.md` pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
+| S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
 | S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Weave / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
 
 ## Distribution & stations

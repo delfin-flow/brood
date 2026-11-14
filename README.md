@@ -1,8 +1,9 @@
 # Brood — v0 simulation
 
-Built from three external briefs (`researches/brood-v0-environment/split/`), verified on this machine
-2026-11-13. Product 2 of `llm_profiles/agentic-os/` (`products.md`); design in `brood-v0.md`,
-test architecture in `testing.md`.
+Built from three external briefs and verified on the author's machine, 2026-11-13. Brood is the
+**generalised, autonomous form** of a workspace-production pattern (workspace + store, handoff-driven,
+never an authority in the runtime). The private knowledge base that produces it is referenced by name
+only (the ICM/MWP methodology); this repository is the public instance.
 
 > **What it is:** a disposable Debian 13 machine that an assistant connects to **over SSH**, learns, and
 > is asked to *pamper* — observe honestly, find drift, propose safe changes with revert paths, change
