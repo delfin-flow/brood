@@ -11,7 +11,7 @@ asked to *pamper* — observe honestly, find drift, propose safe changes with re
 nothing that was not approved. The proof is `suite/` (the `broodctl` CLI + a Vitest suite); the world
 is `fixtures/` (five dirty scenarios).
 
-**Nothing here touches a real machine.** The container is the blast radius. Until its ten acceptance gates pass , autonomy is a design goal, not a fact.
+**Nothing here touches a real machine.** The container is the blast radius. Until its ten acceptance gates pass (`docs/acceptance-gates.md` — currently **PROPOSED**, awaiting the owner's ratification), autonomy is a design goal, not a fact.
 
 ## Navigation
 

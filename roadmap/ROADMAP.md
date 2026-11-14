@@ -54,9 +54,10 @@ serves: the "business operations workspace" offer (agentic operations).
   that names an `extends:` parent it cannot see (S8).
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that is
   the point of S6, not a current fact.
-- **S6's acceptance names gates that do not exist.** "Ten acceptance gates (A1–A10)" appears only in
-  this roadmap; no A1–A10 document exists in the repository. Whether they get written before S6 starts
-  is an owner decision, recorded here rather than invented.
+- **S6's acceptance gates are drafted, not ratified.** `docs/acceptance-gates.md` holds a **PROPOSED**
+  A1–A10 set (each gate a statement + observable + a `Proof:` line naming the test that demonstrates it,
+  or saying it does not exist yet). S6 stays ⬜ until the owner ratifies the set; ratification is the
+  definition of "S6 done", not a formality.
 
 ## Owner decisions (operator, 2026-11-13)
 
@@ -86,7 +87,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | S3 | **Fix the L4 interruption test** — repair the kill helper so the signal reaches the right pid, then make recovery actually pass | optimisation | 🔄 | L4 green: interrupted observe leaves a recoverable journal; expired/altered approval refused; revert exercised · [log](handoffs/02-s3-interruption.md) |
 | S4 | **Manifest ↔ parser agreement** — read `expect_as` and `discoverable_by` (the fixtures already declare them), and drop the tolerance for unknown fields | optimisation | 🔄 | A `scenario.yaml` with a wrong field name fails loudly, not silently · [log](handoffs/03-s4-manifest-parser.md) |
 | S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; the harness now runs it on a throwaway copy of one mounted scenario (`BROOD_SCENARIO`), so a fresh checkout is hostile without a manual step | scripts | 🔄 | A fresh clone + `cd suite && npm run test:int` reproduces the same fault set as the zip — and leaves the checkout untouched · [log](handoffs/05-s5-fixture-materialisation.md) |
-| S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
+| S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | A1–A10 (`docs/acceptance-gates.md`) ratified by the owner, then pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
 | S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
 | S8 | **Declared-chain honesty** — `assess`/`report` read `extends:`, resolve the chain when the parent manifests are in the observed scope, and otherwise name the unresolved inheritance and say its declarations could not be verified | optimisation | 🔄 | `hostile`'s packet and report both state "4 declared, inheritance via `dirty-business` unverified"; the suite asserts the CLI's block and fails if it disappears |
 | S9 | **The delivery recipe** — a fresh clone builds the test image (the derived sshd config is committed), `down.sh` keeps `brood-test:local`, and the delivered machine mounts a materialised runtime **copy** of one scenario (`BROOD_SCENARIO`), never the repository's `fixtures/` tree | scripts | 🔄 | From a fresh clone: `up.sh` serves a materialised `/srv/scenario` with real `.git` directories, `git status --short` stays clean through `up`/`apply`/`revert`/`down`, `docker build -f Dockerfile.test` needs no `cp`, and `brood-test:local` survives `down.sh` |
