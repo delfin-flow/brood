@@ -26,14 +26,14 @@ brood/
 
 | Layer | Result |
 |---|---|
-| L0 unit — 14 tests | ✅ pass, no Docker, no network |
-| L1 contract — 13 tests | ✅ pass, no Docker, no network |
+| L0 unit — 15 tests | ✅ pass, no Docker, no network |
+| L1 contract — 15 tests | ✅ pass, no Docker, no network |
 | `tsc --noEmit` | ✅ clean |
 | Image builds | ✅ `brood-image:local` (310 MB) |
 | SSH in (key-only, unprivileged `brood`) | ✅ works |
 | L2 integration | ✅ pass (coverage honesty fixed 2026-11-14 — see `FINDINGS.md`) |
-| L3 declared-fault acceptance | ⚠️ passes, but it proves less than it claims |
-| L4 recovery | ❌ kill-helper bug |
+| L3 declared-fault acceptance | ⚠️ passes, but it still proves less than it claims (S2) |
+| L4 recovery | ✅ pass (the failpoint, not the kill helper, was the defect) |
 | Blast radius | ✅ fixture tree unchanged byte-for-byte and mode-for-mode |
 
 ## Run it

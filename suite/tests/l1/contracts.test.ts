@@ -70,13 +70,51 @@ describe("L1 — finding contract", () => {
 });
 
 describe("L1 — scenario declaration contract", () => {
-  it("accepts an explicit empty list and preserves declared fault identity", () => {
+  const declaredFault = [
+    "faults:",
+    "  - id: service.unit_invalid",
+    "    expect_as: service.unit_invalid",
+    "    discoverable_by:",
+    "      - systemd-analyze verify etc/systemd/system/ledger-reconcile.service",
+    "    evidence: etc/systemd/system/ledger-reconcile.service",
+    "    note: oneshot with Restart=always is invalid",
+    ""
+  ].join("\n");
+
+  it("accepts an explicit empty list and reads the declared fields", () => {
     expect(parseScenarioFaults("faults: []\n")).toEqual([]);
-    expect(parseScenarioFaults("faults:\n  - id: missing-service\n    kind: service\n    description: Service is absent\n")[0]?.id).toBe("missing-service");
+    const [fault] = parseScenarioFaults(declaredFault);
+    expect(fault).toMatchObject({
+      id: "service.unit_invalid",
+      expectAs: "service.unit_invalid",
+      evidence: "etc/systemd/system/ledger-reconcile.service",
+      discoverableBy: ["systemd-analyze verify etc/systemd/system/ledger-reconcile.service"],
+      note: "oneshot with Restart=always is invalid"
+    });
   });
+
   it("rejects an absent or malformed fault declaration instead of returning an empty success", () => {
     expect(() => parseScenarioFaults("name: scenario-without-declarations\n")).toThrow(/explicitly declare/);
     expect(() => parseScenarioFaults("faults: not-a-list\n")).toThrow(/must be an array/);
+    expect(() => parseScenarioFaults("planted_faults: []\n")).toThrow(/explicitly declare/);
+  });
+
+  it("fails loudly on a wrong field name instead of silently discarding it", () => {
+    const misspelled = declaredFault.replace("expect_as:", "expect:");
+    expect(() => parseScenarioFaults(misspelled)).toThrow(/undeclared field\(s\): expect;/);
+    const alias = declaredFault.replace("expect_as:", "kind:");
+    expect(() => parseScenarioFaults(alias)).toThrow(/undeclared field\(s\): kind;/);
+  });
+
+  it("requires every declared field the detector contract depends on", () => {
+    const withoutEvidence = declaredFault.replace("    evidence: etc/systemd/system/ledger-reconcile.service\n", "");
+    expect(() => parseScenarioFaults(withoutEvidence)).toThrow(/evidence/);
+    const withoutDiscoverable = declaredFault.replace(/    discoverable_by:\n      - .*\n/, "");
+    expect(() => parseScenarioFaults(withoutDiscoverable)).toThrow(/discoverable_by/);
+    const withoutId = declaredFault.replace("  - id: service.unit_invalid\n", "  - id: ''\n");
+    expect(() => parseScenarioFaults(withoutId)).toThrow(/faults\[0\]\.id/);
+    const emptyDiscoverable = declaredFault.replace(/      - .*\n/, "");
+    expect(() => parseScenarioFaults(emptyDiscoverable)).toThrow(/non-empty array/);
   });
 });
 

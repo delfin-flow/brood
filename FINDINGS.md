@@ -25,7 +25,8 @@ read; the external build could not run any of it (its own `NOTES.md` says so und
 
 ## Defects found — three, in order of seriousness
 
-> **Status 2026-11-14:** defect 1 is **fixed** (see *Fixed* below). Defects 2 and 3 stand.
+> **Status 2026-11-14:** defects 1, 3 and 4 are **fixed** (see *Fixed* below). Defect 2 stands — L3 still
+> proves less than it claims.
 
 ### 1. A discoverable fault is classified as a scan failure (design-level)
 
@@ -81,7 +82,7 @@ session). Cheap to fix; currently it hides whether recovery works at all.
 | image ↔ suite | The image has **no Node**, but `broodctl` is a Node program; and no key is baked, but the harness expects one authorised. Neither part is wrong — the parts were briefed independently. Fixed with a derived `Dockerfile.test` (Node 24 + `broodctl` + a throwaway pubkey, build-only, never delivered) |
 | image ↔ suite | The image has **no `CMD`/`ENTRYPOINT`** — compose supplies it. `docker run <image>` starts `bash` and exits. Fixed in the derived test image: `ENTRYPOINT ["/usr/sbin/sshd","-D",…]` plus a build-time host key and a local `sshd_config` |
 | suite ↔ fixtures | The CLI's manifest parser accepts `id`/`name`/`key`, `kind`/`type`/`check`, `path`/`target`/`file`. The fixtures use `expect_as` and `discoverable_by` — **neither is read**. The parser tolerates them (declares by `id`), so it works, but `expect_as` is silently discarded |
-| fixtures ↔ git/zip | `hostile` relies on `d---------` directories. Zip preserves the mode; **git does not**, and a non-root copy fails outright. Needs a `materialize.sh` that re-applies the permission faults after checkout, plus a `mode:` declaration in the manifest |
+| fixtures ↔ suite | `hostile` relies on `d---------` directories. Zip preserves the mode; **git does not**, and a non-root copy fails outright. `materialize.sh` now exists and re-applies both faults after checkout, but nothing runs it yet |
 | suite ↔ machine model | The harness starts the container without `--hostname`, so `hostname` returns a container id inside a thing that is meant not to look like a container |
 
 ## One rule that was softened without asking
@@ -110,6 +111,30 @@ The contract is written down in `docs/packet-schema.md`.
 Verified on this machine: `dirty-business` → `complete-within-scope` with the broken symlink present
 as a fact; **L2 green**, L3 green, blast radius green. `npm test` = **27** offline tests (was 18).
 
+### Defect 3 — the failpoint never held the process (fixed 2026-11-14)
+
+The recorded diagnosis — "the pid comes from a `ps` parse and the signal is sent through another SSH
+session" — was **wrong**, and the wrong diagnosis is itself the finding. The marker pid is correct and
+`kill` reaches it; the process was already gone.
+
+Root cause: the failpoint waited on `await new Promise((resolve) => process.once("SIGTERM", …))` with
+nothing else in the queue. **A signal listener does not keep Node's event loop alive**, so the process
+exited **13** ("unsettled top-level await") the instant it wrote the marker — reproducibly:
+
+```sh
+node -e 'await new Promise((r) => process.once("SIGTERM", () => r()));' ; echo $?   # 13, immediately
+```
+
+The fix is a ref'd keep-alive timer held for the duration of the pause (cleared in `finally`). L4 now
+goes **all the way through** — interruption, expired approval, altered arguments, apply, verify, revert,
+removed collector — and the interrupted run fails loudly (`status: failed`, exit 2) instead of dying
+silently. A new L0 test spawns the CLI, waits for the marker, asserts the process is still alive, sends
+`SIGTERM` and expects the JSON failure — the regression that would have caught this without Docker.
+
+**Honest limit:** the story spoke of an "interrupted observe leaving a recoverable journal". There is no
+journal. What L4 actually proves is that the state stays consistent with no partial write, recovery is
+re-observation, and the recovered packet set hashes identically to the pre-interruption set.
+
 ### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
 
 Found while making L2 green: the harness passed `BROOD_STATE_DIR`, `BROOD_MUTABLE_ROOT` and
@@ -125,7 +150,7 @@ machine and everything about a test harness that *looked* wired up.
    the whole design rests on.
 2. Add one real detector (storage headroom is the easiest: compare `df` facts against the threshold) and
    re-point L3's evidence at the fact, not the manifest. Until then L3 is decoration.
-3. Fix the L4 kill helper.
+3. ~~Fix the L4 kill helper.~~ Done — it was never the helper; see defect 3.
 4. `fixtures/materialize.sh` exists but is not wired into the test run. Note for when it is: once the
    `hostile` permissions are applied, a whole-`fixtures` scope correctly reports `partial`, so the
    harness should point at one scenario per run rather than the whole tree.

@@ -149,9 +149,8 @@ function generatedFindings(packets: JsonRecord[]): JsonRecord[] {
         findings.push({
           id,
           fault_id: declared.id,
-          kind: declared.kind,
-          description: declared.description,
-          ...(declared.path ? { target: declared.path } : {}),
+          kind: declared.expectAs,
+          description: declared.note ?? declared.id,
           evidence: { path: fact.path, packet_hash: packet.canonical_hash },
           coverage: overallCoverage,
           provenance: {
@@ -159,7 +158,9 @@ function generatedFindings(packets: JsonRecord[]): JsonRecord[] {
             collector: packet.collector,
             canonical_hash: packet.canonical_hash
           },
-          source: fact.path
+          source: fact.path,
+          declared_evidence: declared.evidence,
+          discoverable_by: declared.discoverableBy
         });
       }
     }

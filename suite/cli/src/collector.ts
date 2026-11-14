@@ -157,10 +157,18 @@ export async function collectFilesystem(scopeInput: string, options: CollectOpti
       pauseUsed = true;
       await fs.mkdir(path.dirname(pauseMarker), { recursive: true });
       await fs.writeFile(pauseMarker, `${process.pid}\n`, { mode: 0o600 });
-      await new Promise<void>((resolve) => {
-        process.once("SIGTERM", () => resolve());
-        process.once("SIGINT", () => resolve());
-      });
+      // A signal listener does not keep the event loop alive: without this timer Node
+      // exits 13 ("unsettled top-level await") the instant the marker is written, so the
+      // interruption test would signal a process that is already gone.
+      const keepAlive = setInterval(() => {}, 1_000);
+      try {
+        await new Promise<void>((resolve) => {
+          process.once("SIGTERM", () => resolve());
+          process.once("SIGINT", () => resolve());
+        });
+      } finally {
+        clearInterval(keepAlive);
+      }
       throw new Error("test failpoint interrupted observe cycle");
     }
   };

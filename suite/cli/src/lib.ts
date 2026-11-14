@@ -214,13 +214,21 @@ export function validateManifest(value: unknown): asserts value is Manifest {
 }
 
 export interface DeclaredFault {
+  /** Stable fault identity, as declared by the scenario. */
   id: string;
-  kind: string;
-  description: string;
-  path?: string;
+  /** The fault kind this declaration expects to be observed (`expect_as`). */
+  expectAs: string;
+  /** Scenario-relative path of the record that carries the evidence. */
+  evidence: string;
+  /** Commands an honest observer could have used to find this. */
+  discoverableBy: string[];
+  note?: string;
   raw: JsonRecord;
   index: number;
 }
+
+/** The fixture schema is the contract: an undeclared field is a declaration bug, not a wart to tolerate. */
+const FAULT_FIELDS = ["id", "expect_as", "evidence", "discoverable_by", "note"] as const;
 
 export function parseScenarioFaults(content: string): DeclaredFault[] {
   const parsed: unknown = parseYaml(content);
@@ -229,23 +237,31 @@ export function parseScenarioFaults(content: string): DeclaredFault[] {
   let faultsValue: unknown;
   if ("faults" in parsed) faultsValue = parsed.faults;
   else if (scenario && "faults" in scenario) faultsValue = scenario.faults;
-  else if ("planted_faults" in parsed) faultsValue = parsed.planted_faults;
   else throw new Error("scenario.yaml must explicitly declare a faults array");
   if (!Array.isArray(faultsValue)) throw new Error("scenario.yaml faults declaration must be an array");
   return faultsValue.map((item, index) => {
-    if (!isObject(item)) throw new Error(`scenario.yaml faults[${index}] must be an object`);
-    const rawId = item.id ?? item.name ?? item.key;
-    const kindValue = item.kind ?? item.type ?? item.check ?? "declared-fault";
-    const id = typeof rawId === "string" && rawId.trim()
-      ? rawId.trim()
-      : `${String(kindValue)}-${index + 1}`;
-    const descriptionValue = item.description ?? item.title ?? rawId ?? kindValue;
-    const pathValue = item.path ?? item.target ?? item.file;
+    const label = `scenario.yaml faults[${index}]`;
+    if (!isObject(item)) throw new Error(`${label} must be an object`);
+    const undeclared = Object.keys(item).filter((key) => !(FAULT_FIELDS as readonly string[]).includes(key));
+    if (undeclared.length > 0) {
+      throw new Error(`${label} has undeclared field(s): ${undeclared.join(", ")}; declared fields are ${FAULT_FIELDS.join(", ")}`);
+    }
+    requireNonEmptyString(item.id, `${label}.id`);
+    requireNonEmptyString(item.expect_as, `${label}.expect_as`);
+    requireNonEmptyString(item.evidence, `${label}.evidence`);
+    if (!Array.isArray(item.discoverable_by) || item.discoverable_by.length === 0) {
+      throw new Error(`${label}.discoverable_by must be a non-empty array of commands`);
+    }
+    for (const [i, command] of item.discoverable_by.entries()) {
+      requireNonEmptyString(command, `${label}.discoverable_by[${i}]`);
+    }
+    if (item.note !== undefined) requireNonEmptyString(item.note, `${label}.note`);
     return {
-      id,
-      kind: typeof kindValue === "string" ? kindValue : "declared-fault",
-      description: typeof descriptionValue === "string" ? descriptionValue : id,
-      ...(typeof pathValue === "string" ? { path: pathValue } : {}),
+      id: item.id.trim(),
+      expectAs: item.expect_as.trim(),
+      evidence: item.evidence.trim(),
+      discoverableBy: (item.discoverable_by as string[]).map((command) => command.trim()),
+      ...(typeof item.note === "string" ? { note: item.note.trim() } : {}),
       raw: item,
       index
     };
