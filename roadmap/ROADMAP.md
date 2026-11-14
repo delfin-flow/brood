@@ -69,3 +69,12 @@ serves: the "business operations workspace" offer (agentic operations).
 
 Model handoff notes (the private queue) and project handovers (`roadmap/handoffs/`) are **referenced,
 not copied**. A story's hand-off names the stem; the body lives in the queue.
+
+| Story | Note stem | Status |
+|---|---|---|
+| S2 storage-headroom detector | `2026-11-14-01-flash-brood-s2-storage-headroom-detector` | open |
+| S5 fixture materialisation | `2026-11-14-02-flash-brood-s5-fixture-materialisation` | open |
+| v0 acceptance run (not a story — the review gate) | `2026-11-14-03-flash-brood-v0-verification-gate` | open |
+
+S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); their acceptance is met and verified, and
+each stays 🔄 until the owner confirms it.
