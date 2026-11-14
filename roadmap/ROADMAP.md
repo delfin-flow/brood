@@ -11,19 +11,22 @@ serves: the "business operations workspace" offer (agentic operations).
 **Maturity path:** markdown → optimisation → scripts → binaries → app. Story status: ⬜ todo ·
 🔄 in progress · ✅ done.
 
-## Current state (2026-11-13)
+## Current state (2026-11-14)
 
 - **The three zips landed and are assembled** under the repository root: `image/` (the machine),
   `fixtures/` (five dirty scenarios), `suite/` (`broodctl` + Vitest). Committed.
 - **Verified on this machine, not claimed from the model:** image builds (310 MB), key-only SSH
-  works, **L0+L1 = 18 tests pass offline**, `tsc --noEmit` clean, **blast radius passes**.
-- **Three defects, one design-level**, recorded in `FINDINGS.md`:
-  1. a planted fault (broken symlink) is **classified as a scan failure** → `coverage: partial` with
-     no reason field, and the fault itself never appears in `facts` — this blocks L2 and violates the
-     honest-coverage rule;
-  2. **L3 echoes the scenario manifest** instead of detecting — "finds every declared fault" is true
+  works, **L0+L1 = 27 tests pass offline**, `tsc --noEmit` clean, **L2 green**, L3 green, **blast
+  radius passes**, L4 still red at its kill helper (S3).
+- **Coverage honesty is implemented (S1).** A broken symlink is a fact (`filesystem.symlink`,
+  `target_exists: false`), the scan stays `complete-within-scope`, and every non-complete packet
+  carries `errors`/`skipped`/`problems` — enforced by `validatePacket`, documented in
+  `docs/packet-schema.md`. A disabled collector reports `unsupported` *with its reason*. Acceptance
+  verified on this machine 2026-11-14; the story stays 🔄 until the owner confirms it.
+- **Two defects stand**, recorded in `FINDINGS.md`:
+  1. **L3 echoes the scenario manifest** instead of detecting — "finds every declared fault" is true
      by construction, so acceptance currently proves nothing;
-  3. the **L4 kill helper aborts** before testing recovery.
+  2. the **L4 kill helper aborts** before testing recovery (a helper defect, not the recovery logic).
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that
   is the point of the roadmap below, not a current fact.
 

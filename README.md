@@ -18,19 +18,20 @@ brood/
 ├── image/      the machine — Dockerfile, sshd_config (key-only), compose, scripts, NOTES.md
 ├── fixtures/   five assembled scenarios (clean, dirty-dev, dirty-business, hostile, partial)
 │               each with scenario.yaml declaring its planted faults + evidence
-└── suite/      broodctl (the CLI) + the Vitest proof suite (L0–L4 + blast radius) + NOTES.md
+├── suite/      broodctl (the CLI) + the Vitest proof suite (L0–L4 + blast radius) + NOTES.md
+└── docs/       the observation packet contract (coverage honesty)
 ```
 
 ## Status (verified here, not claimed)
 
 | Layer | Result |
 |---|---|
-| L0 unit — 5 tests | ✅ pass, no Docker, no network |
+| L0 unit — 14 tests | ✅ pass, no Docker, no network |
 | L1 contract — 13 tests | ✅ pass, no Docker, no network |
 | `tsc --noEmit` | ✅ clean |
 | Image builds | ✅ `brood-image:local` (310 MB) |
 | SSH in (key-only, unprivileged `brood`) | ✅ works |
-| L2 integration | ❌ **one real bug** — see `FINDINGS.md` |
+| L2 integration | ✅ pass (coverage honesty fixed 2026-11-14 — see `FINDINGS.md`) |
 | L3 declared-fault acceptance | ⚠️ passes, but it proves less than it claims |
 | L4 recovery | ❌ kill-helper bug |
 | Blast radius | ✅ fixture tree unchanged byte-for-byte and mode-for-mode |

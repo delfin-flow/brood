@@ -13,7 +13,19 @@ export const COVERAGE_STATES = [
 export type Coverage = (typeof COVERAGE_STATES)[number];
 export type JsonRecord = Record<string, unknown>;
 
+/**
+ * Why a scan is not `complete-within-scope`. Every non-complete coverage state must
+ * carry at least one entry here — a coverage label without a reason is opaque and
+ * therefore dishonest.
+ */
+export interface CoverageReasons {
+  errors: string[];
+  skipped: string[];
+  problems: string[];
+}
+
 export const PACKET_KINDS = ["filesystem.snapshot", "coverage.status"] as const;
+export const FACT_KINDS = ["filesystem.file", "filesystem.symlink"] as const;
 
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -89,10 +101,45 @@ export function validatePacket(value: unknown): asserts value is JsonRecord {
   requireNonEmptyString(value.collector.name, "packet.collector.name");
   requireNonEmptyString(value.collector.version, "packet.collector.version");
   if (!Array.isArray(value.facts)) throw new Error("packet.facts must be an array");
+  for (const [i, fact] of value.facts.entries()) validateFact(fact, `packet.facts[${i}]`);
+  validateReasons(value, value.coverage);
   if (typeof value.canonical_hash !== "string" || !/^[a-f0-9]{64}$/.test(value.canonical_hash)) {
     throw new Error("packet.canonical_hash must be a lowercase SHA-256 hash");
   }
   if (canonicalPacketHash(value) !== value.canonical_hash) throw new Error("packet.canonical_hash does not match its contents");
+}
+
+function validateReasons(value: JsonRecord, coverage: Coverage): void {
+  const reasons: CoverageReasons = { errors: [], skipped: [], problems: [] };
+  for (const key of ["errors", "skipped", "problems"] as const) {
+    const list = value[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || list.some((item) => typeof item !== "string" || item.trim() === "")) {
+      throw new Error(`packet.${key} must be an array of non-empty strings`);
+    }
+    reasons[key] = list as string[];
+  }
+  if (coverage === "complete-within-scope") return;
+  const total = reasons.errors.length + reasons.skipped.length + reasons.problems.length;
+  if (total === 0) {
+    throw new Error(`packet.coverage is '${coverage}' but the scan carries no reason; errors, skipped or problems is required`);
+  }
+}
+
+function validateFact(value: unknown, label: string): void {
+  requireObject(value, label);
+  requireNonEmptyString(value.path, `${label}.path`);
+  if (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256)) throw new Error(`${label}.sha256 must be a lowercase SHA-256 hash`);
+  if (typeof value.size !== "number" || !Number.isInteger(value.size) || value.size < 0) throw new Error(`${label}.size must be a non-negative integer`);
+  if (typeof value.mode !== "number" || !Number.isInteger(value.mode)) throw new Error(`${label}.mode must be an integer`);
+  if (value.kind === undefined) return;
+  if (typeof value.kind !== "string" || !(FACT_KINDS as readonly string[]).includes(value.kind)) throw new Error(`${label}.kind is undeclared`);
+  if (value.kind === "filesystem.symlink") {
+    if (typeof value.target !== "string") throw new Error(`${label}.target is required for a symlink fact`);
+    // A symlink fact must say whether its target resolved — a dangling link is a fact, not a failure.
+    if (typeof value.target_exists !== "boolean") throw new Error(`${label}.target_exists is required for a symlink fact`);
+    if (value.target_exists === false && typeof value.loop !== "boolean") throw new Error(`${label}.loop is required when a symlink target does not resolve`);
+  }
 }
 
 export function validateFinding(value: unknown): asserts value is JsonRecord {

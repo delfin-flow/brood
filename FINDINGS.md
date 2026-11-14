@@ -25,6 +25,8 @@ read; the external build could not run any of it (its own `NOTES.md` says so und
 
 ## Defects found — three, in order of seriousness
 
+> **Status 2026-11-14:** defect 1 is **fixed** (see *Fixed* below). Defects 2 and 3 stand.
+
 ### 1. A discoverable fault is classified as a scan failure (design-level)
 
 `dirty-business` and `hostile` report `coverage: partial`, which makes **L2 fail** (`expected 'partial'
@@ -89,12 +91,42 @@ The brief said "never `COPY`". The delivered `Dockerfile` honours it. The **deri
 *test credential*, not fixture content, and the derived image is never delivered. Recorded here rather
 than left implicit.
 
+## Fixed
+
+### Defect 1 — coverage honesty (fixed 2026-11-14)
+
+The collector now records a symlink as a **fact** (`kind: filesystem.symlink`, `target`,
+`target_exists`, `loop`) and keeps the scan `complete-within-scope`. Symlinks are recorded but never
+followed, so a loop is `loop: true` rather than an endless walk, and a link pointing outside the
+scope leaks nothing into the packet. The collector moved out of the CLI entry point into
+`suite/cli/src/collector.ts` so it is unit-testable at T0.
+
+Every non-complete packet now carries the reason list the design required — `errors` (observation
+attempted and failed), `skipped` (deliberately not collected), `problems` (why the packet as a whole
+is incomplete) — and `validatePacket` **refuses** a non-complete coverage label with no reason, plus
+any unobserved fact shape. A disabled collector reports `unsupported` with the reason spelled out.
+The contract is written down in `docs/packet-schema.md`.
+
+Verified on this machine: `dirty-business` → `complete-within-scope` with the broken symlink present
+as a fact; **L2 green**, L3 green, blast radius green. `npm test` = **27** offline tests (was 18).
+
+### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
+
+Found while making L2 green: the harness passed `BROOD_STATE_DIR`, `BROOD_MUTABLE_ROOT` and
+`BROOD_APPROVAL_SECRET` to the container with `docker run --env`, which reaches PID 1 only — an SSH
+session starts with a fresh environment. Propose/apply therefore failed with `BROOD_MUTABLE_ROOT must
+be set`, one assertion after the coverage bug had been fixed. The harness now passes its provisioned
+state on every remote CLI call (`suite/tests/support/remote.ts`). This defects nothing about the
+machine and everything about a test harness that *looked* wired up.
+
 ## What to do next, in order
 
-1. Fix defect 1 — symlinks as facts, and always report the coverage reason. It blocks L2 and it is the
-   rule the whole design rests on.
+1. ~~Fix defect 1 — symlinks as facts, and always report the coverage reason.~~ Done; it was the rule
+   the whole design rests on.
 2. Add one real detector (storage headroom is the easiest: compare `df` facts against the threshold) and
    re-point L3's evidence at the fact, not the manifest. Until then L3 is decoration.
 3. Fix the L4 kill helper.
-4. Add `fixtures/materialize.sh` for the `hostile` permission faults.
+4. `fixtures/materialize.sh` exists but is not wired into the test run. Note for when it is: once the
+   `hostile` permissions are applied, a whole-`fixtures` scope correctly reports `partial`, so the
+   harness should point at one scenario per run rather than the whole tree.
 5. Only then consider the ambient loop — nothing here yet proves a cycle can run unattended.

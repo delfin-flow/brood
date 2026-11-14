@@ -20,6 +20,8 @@ export interface BroodEnvironment {
   remoteCli: string;
   stateDir: string;
   mutableRoot: string;
+  /** Harness-provisioned state that every remote CLI call must see. */
+  remoteEnv: Record<string, string>;
 }
 
 let environment: BroodEnvironment | undefined;
@@ -84,7 +86,7 @@ export async function remoteJson<T = any>(command: string, input?: unknown): Pro
 
 export function cli(command: string): string {
   if (!environment) throw new Error("Brood test environment has not been started");
-  return `${shellQuote(environment.remoteCli)} ${command}`;
+  return `${withRemoteEnv(environment.remoteEnv, `${shellQuote(environment.remoteCli)} ${command}`)}`;
 }
 
 export function withRemoteEnv(assignments: Record<string, string>, command: string): string {
@@ -163,7 +165,14 @@ export async function startBroodEnvironment(): Promise<void> {
     secret,
     remoteCli: process.env.BROOD_REMOTE_CLI ?? "/usr/local/bin/broodctl",
     stateDir,
-    mutableRoot
+    mutableRoot,
+    // `docker run --env` reaches PID 1 only; an SSH session gets a fresh environment.
+    // The harness therefore passes its provisioned state on every remote command.
+    remoteEnv: {
+      BROOD_STATE_DIR: stateDir,
+      BROOD_MUTABLE_ROOT: mutableRoot,
+      BROOD_APPROVAL_SECRET: secret
+    }
   };
   scenarioHashBefore = await snapshotDirectory(scenarioDir);
   const args = [

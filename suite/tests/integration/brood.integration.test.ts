@@ -19,7 +19,10 @@ interface Packet {
   coverage: string;
   canonical_hash: string;
   observed_at: string;
-  facts: unknown[];
+  facts: Array<Record<string, unknown>>;
+  errors: string[];
+  skipped: string[];
+  problems: string[];
 }
 interface Finding {
   id: string;
@@ -60,6 +63,20 @@ describe("L2 — SSH command integration", () => {
     expect(assessment.status).toBe("ok");
     expect(assessment.findings.every((finding) => finding.evidence && finding.coverage)).toBe(true);
 
+    // S1 — a planted broken symlink is a fact, not a scan failure.
+    const symlinkFacts = packets.flatMap((packet) => packet.facts).filter((fact) => fact.kind === "filesystem.symlink");
+    expect(symlinkFacts.length).toBeGreaterThan(0);
+    expect(symlinkFacts.some((fact) => fact.target_exists === false)).toBe(true);
+    const dirtyBusiness = await remoteJson<Packet[]>(cli("observe --scope /srv/scenario/dirty-business"));
+    expect(dirtyBusiness.map((packet) => packet.coverage)).toEqual(["complete-within-scope"]);
+    expect(dirtyBusiness[0]?.errors).toEqual([]);
+
+    // S1 — no scan is ever labelled incomplete without saying why.
+    for (const packet of packets) {
+      if (packet.coverage === "complete-within-scope") continue;
+      expect(packet.errors.length + packet.skipped.length + packet.problems.length).toBeGreaterThan(0);
+    }
+
     const proposals = await remoteJson<{ status: string; proposals: Array<Record<string, unknown>> }>(
       withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("propose")), assessment.findings
     );
@@ -97,13 +114,17 @@ describe("L3 — declared-fault acceptance", () => {
   });
 
   it("does not emit healthy findings for an incomplete/unsupported scan", async () => {
+    const unsupportedPackets = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli("observe --scope /srv/scenario")));
     const result = await remoteJson<{ status: string; coverage: string; findings: Finding[] }>(
       withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem", BROOD_PROVIDER: "fake" }, cli("assess")),
-      await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli("observe --scope /srv/scenario")))
+      unsupportedPackets
     );
     expect(result.status).toBe("unsupported");
     expect(result.coverage).toBe("unsupported");
     expect(result.findings).toEqual([]);
+    // S1 — the removed collector still reports unsupported *with a reason*.
+    expect(unsupportedPackets[0]?.coverage).toBe("unsupported");
+    expect(unsupportedPackets[0]?.problems.length).toBeGreaterThan(0);
   });
 });
 
@@ -170,6 +191,7 @@ describe("L4 — interruption, approval and recovery", () => {
     const unsupported = await remoteJson<Packet[]>(withRemoteEnv({ BROOD_DISABLE_COLLECTORS: "filesystem" }, cli("observe --scope /srv/scenario")));
     expect(unsupported[0]?.coverage).toBe("unsupported");
     expect(unsupported[0]?.facts).toEqual([]);
+    expect(unsupported[0]?.problems.length).toBeGreaterThan(0);
   });
 });
 

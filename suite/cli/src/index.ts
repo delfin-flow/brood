@@ -16,17 +16,11 @@ import {
   validateProposal,
   validateReceipt,
   type Coverage,
+  type CoverageReasons,
   type JsonRecord
 } from "./lib.ts";
+import { collectFilesystem, type Fact } from "./collector.ts";
 import { runProvider } from "./provider.ts";
-
-type Fact = {
-  path: string;
-  sha256: string;
-  size: number;
-  mode: number;
-  content?: string;
-};
 
 type Packet = JsonRecord & {
   schema_version: 1;
@@ -36,6 +30,9 @@ type Packet = JsonRecord & {
   observed_at: string;
   collector: { name: string; version: string };
   facts: Fact[];
+  errors: string[];
+  skipped: string[];
+  problems: string[];
   canonical_hash: string;
 };
 
@@ -86,71 +83,6 @@ function packetWithHash(packet: Omit<Packet, "canonical_hash">): Packet {
   return result;
 }
 
-async function walkScope(scopeInput: string, pauseMarker?: string): Promise<{ facts: Fact[]; partial: boolean; exists: boolean }> {
-  const scope = path.resolve(scopeInput);
-  const facts: Fact[] = [];
-  let partial = false;
-  let exists = true;
-  let pauseUsed = false;
-  const visit = async (target: string): Promise<void> => {
-    let stat;
-    try {
-      stat = await fs.lstat(target);
-    } catch {
-      partial = true;
-      exists = false;
-      return;
-    }
-    if (stat.isSymbolicLink()) {
-      partial = true;
-      return;
-    }
-    if (stat.isDirectory()) {
-      let entries;
-      try {
-        entries = await fs.readdir(target, { withFileTypes: true });
-      } catch {
-        partial = true;
-        return;
-      }
-      entries.sort((a, b) => a.name.localeCompare(b.name, "en"));
-      for (const entry of entries) await visit(path.join(target, entry.name));
-      return;
-    }
-    if (!stat.isFile()) return;
-    try {
-      const content = await fs.readFile(target);
-      const fact: Fact = {
-        path: target,
-        sha256: sha256(content),
-        size: content.byteLength,
-        mode: stat.mode & 0o777
-      };
-      if (path.basename(target) === "scenario.yaml") {
-        if (content.byteLength <= 1_048_576) fact.content = content.toString("utf8");
-        else partial = true;
-      }
-      facts.push(fact);
-      if (pauseMarker && !pauseUsed) {
-        pauseUsed = true;
-        await fs.mkdir(path.dirname(pauseMarker), { recursive: true });
-        await fs.writeFile(pauseMarker, `${process.pid}\n`, { mode: 0o600 });
-        await new Promise<void>((resolve) => {
-          process.once("SIGTERM", () => resolve());
-          process.once("SIGINT", () => resolve());
-        });
-        throw new Error("test failpoint interrupted observe cycle");
-      }
-    } catch (error) {
-      if (pauseUsed && error instanceof Error && error.message === "test failpoint interrupted observe cycle") throw error;
-      partial = true;
-    }
-  };
-  await visit(scope);
-  facts.sort((a, b) => a.path.localeCompare(b.path, "en"));
-  return { facts, partial, exists };
-}
-
 async function observe(scopes: string[], parsed: ReturnType<typeof argsAfterCommand>): Promise<void> {
   if (scopes.length === 0) throw new Error("observe requires --scope <path…>");
   const disabled = new Set((process.env.BROOD_DISABLE_COLLECTORS ?? "").split(",").map((s) => s.trim()).filter(Boolean));
@@ -158,6 +90,11 @@ async function observe(scopes: string[], parsed: ReturnType<typeof argsAfterComm
   for (const scopeInput of scopes) {
     const scope = path.resolve(scopeInput);
     if (disabled.has("filesystem")) {
+      const reasons: CoverageReasons = {
+        errors: [],
+        skipped: [],
+        problems: [`collector 'filesystem' is unavailable: disabled by BROOD_DISABLE_COLLECTORS for scope ${scope}`]
+      };
       packets.push(packetWithHash({
         schema_version: 1,
         kind: "coverage.status",
@@ -165,22 +102,21 @@ async function observe(scopes: string[], parsed: ReturnType<typeof argsAfterComm
         coverage: "unsupported",
         observed_at: new Date().toISOString(),
         collector: { name: "filesystem", version: "1.0.0" },
-        facts: []
+        facts: [],
+        ...reasons
       }));
       continue;
     }
-    const result = await walkScope(scope, process.env.BROOD_TEST_PAUSE_MARKER);
-    const coverage: Coverage = !result.exists && result.facts.length === 0
-      ? "unknown"
-      : result.partial ? "partial" : "complete-within-scope";
+    const result = await collectFilesystem(scope, { pauseMarker: process.env.BROOD_TEST_PAUSE_MARKER });
     packets.push(packetWithHash({
       schema_version: 1,
       kind: "filesystem.snapshot",
       scope,
-      coverage,
+      coverage: result.coverage,
       observed_at: new Date().toISOString(),
       collector: { name: "filesystem", version: "1.0.0" },
-      facts: result.facts
+      facts: result.facts,
+      ...result.reasons
     }));
   }
 
@@ -206,6 +142,7 @@ function generatedFindings(packets: JsonRecord[]): JsonRecord[] {
     if (packet.kind !== "filesystem.snapshot") continue;
     const facts = packet.facts as Fact[];
     for (const fact of facts) {
+      if (fact.kind === "filesystem.symlink") continue;
       if (typeof fact.content !== "string" || path.basename(fact.path) !== "scenario.yaml") continue;
       for (const declared of parseScenarioFaults(fact.content)) {
         const id = `declared-${sha256(canonicalStringify({ source: fact.path, fault: declared.raw, index: declared.index })).slice(0, 16)}`;
@@ -515,6 +452,14 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     if (!packetHashes.has(String(provenance.canonical_hash))) throw new Error("report finding provenance does not refer to an input packet");
   }
   const coverage = aggregateCoverage(packets.map((p) => p.coverage as Coverage));
+  const caveats = packets.flatMap((packet) => {
+    const rows: Array<{ scope: string; kind: string; reason: string }> = [];
+    for (const key of ["errors", "skipped", "problems"] as const) {
+      const list = Array.isArray(packet[key]) ? (packet[key] as string[]) : [];
+      for (const reason of list) rows.push({ scope: String(packet.scope), kind: key.slice(0, -1), reason });
+    }
+    return rows;
+  });
   const lines = [
     "# Brood observation report",
     "",
@@ -522,10 +467,14 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     `- Coverage: ${coverage}`,
     `- Packets: ${packets.length}`,
     `- Findings: ${obj.findings.length}`,
-    "",
-    "## Findings",
     ""
   ];
+  if (caveats.length > 0) {
+    lines.push("## Coverage caveats", "");
+    for (const caveat of caveats) lines.push(`- ${caveat.kind}: ${caveat.reason} (scope ${caveat.scope})`);
+    lines.push("");
+  }
+  lines.push("## Findings", "");
   if (obj.findings.length === 0) lines.push("No declared faults were found in the observed scenario metadata.");
   for (const item of obj.findings as JsonRecord[]) {
     const evidence = item.evidence as JsonRecord;
@@ -540,7 +489,15 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
   const data = {
     generated_at: new Date().toISOString(),
     coverage,
-    packets: packets.map((p) => ({ kind: p.kind, scope: p.scope, coverage: p.coverage, canonical_hash: p.canonical_hash })),
+    packets: packets.map((p) => ({
+      kind: p.kind,
+      scope: p.scope,
+      coverage: p.coverage,
+      errors: p.errors,
+      skipped: p.skipped,
+      problems: p.problems,
+      canonical_hash: p.canonical_hash
+    })),
     findings: obj.findings
   };
   const markdown = `${lines.join("\n")}\n`;
