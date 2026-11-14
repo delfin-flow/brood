@@ -17,9 +17,11 @@ import {
   validateReceipt,
   type Coverage,
   type CoverageReasons,
+  type DeclaredFault,
   type JsonRecord
 } from "./lib.ts";
 import { collectFilesystem, type Fact } from "./collector.ts";
+import { DETECTORS, storageThreshold } from "./detectors.ts";
 import { runProvider } from "./provider.ts";
 
 type Packet = JsonRecord & {
@@ -135,54 +137,116 @@ function inputPackets(value: unknown): JsonRecord[] {
   return packets as JsonRecord[];
 }
 
-function generatedFindings(packets: JsonRecord[]): JsonRecord[] {
+interface DeclaredFaultLocation {
+  fault: DeclaredFault;
+  scenarioRoot: string;
+}
+
+/** The declared faults are the cross-check list — never the source of a finding. */
+function declaredFaultsIn(packets: JsonRecord[]): DeclaredFaultLocation[] {
+  const declared: DeclaredFaultLocation[] = [];
+  const seen = new Set<string>();
+  for (const packet of packets) {
+    if (packet.kind !== "filesystem.snapshot") continue;
+    for (const fact of packet.facts as Fact[]) {
+      if (fact.kind !== "filesystem.file") continue;
+      if (typeof fact.content !== "string" || path.basename(fact.path) !== "scenario.yaml") continue;
+      const scenarioRoot = path.dirname(fact.path);
+      for (const fault of parseScenarioFaults(fact.content)) {
+        const key = `${scenarioRoot}|${fault.index}|${fault.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        declared.push({ fault, scenarioRoot });
+      }
+    }
+  }
+  return declared;
+}
+
+/** Run every implemented detector over every fact packet; findings cite the fact measured. */
+async function detectedFindings(packets: JsonRecord[]): Promise<JsonRecord[]> {
+  const threshold = storageThreshold();
   const findings: JsonRecord[] = [];
-  const overallCoverage = aggregateCoverage(packets.map((packet) => packet.coverage as Coverage));
+  const seen = new Set<string>();
   for (const packet of packets) {
     if (packet.kind !== "filesystem.snapshot") continue;
     const facts = packet.facts as Fact[];
-    for (const fact of facts) {
-      if (fact.kind === "filesystem.symlink") continue;
-      if (typeof fact.content !== "string" || path.basename(fact.path) !== "scenario.yaml") continue;
-      for (const declared of parseScenarioFaults(fact.content)) {
-        const id = `declared-${sha256(canonicalStringify({ source: fact.path, fault: declared.raw, index: declared.index })).slice(0, 16)}`;
+    for (const detector of Object.values(DETECTORS)) {
+      const detections = await detector({
+        facts,
+        packet: {
+          canonical_hash: String(packet.canonical_hash),
+          observed_at: String(packet.observed_at),
+          collector: packet.collector as { name: string; version: string },
+          coverage: packet.coverage as Coverage
+        },
+        threshold
+      });
+      for (const detection of detections) {
+        if (seen.has(detection.id)) continue;
+        seen.add(detection.id);
         findings.push({
-          id,
-          fault_id: declared.id,
-          kind: declared.expectAs,
-          description: declared.note ?? declared.id,
-          evidence: { path: fact.path, packet_hash: packet.canonical_hash },
-          coverage: overallCoverage,
-          provenance: {
-            observed_at: packet.observed_at,
-            collector: packet.collector,
-            canonical_hash: packet.canonical_hash
-          },
-          source: fact.path,
-          declared_evidence: declared.evidence,
-          discoverable_by: declared.discoverableBy
+          id: detection.id,
+          fault_id: detection.fault_id,
+          kind: detection.kind,
+          description: detection.description,
+          evidence: detection.evidence,
+          measured: detection.measured,
+          coverage: detection.coverage,
+          provenance: detection.provenance,
+          source: detection.source
         });
       }
     }
   }
-  const seen = new Set<string>();
-  return findings.filter((finding) => {
-    const key = String(finding.id);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return findings;
+}
+
+/**
+ * A declaration is either backed by a detection or reported as `undetected`.
+ * Silence is not a clean bill of health: a detector that ran and found nothing
+ * says so, and a kind with no detector names the gap.
+ */
+function undetectedDeclarations(declared: DeclaredFaultLocation[], findings: JsonRecord[]): JsonRecord[] {
+  const detected = new Set(findings.map((finding) => {
+    const evidence = finding.evidence as JsonRecord;
+    return `${String(finding.kind)}|${String(evidence.path)}`;
+  }));
+  const implemented = Object.keys(DETECTORS);
+  const undetected: JsonRecord[] = [];
+  for (const { fault, scenarioRoot } of declared) {
+    if (!DETECTORS[fault.expectAs]) {
+      undetected.push({
+        fault_id: fault.id,
+        expect_as: fault.expectAs,
+        evidence: fault.evidence,
+        reason: `no detector for kind '${fault.expectAs}' (implemented detectors: ${implemented.join(", ") || "none"})`
+      });
+      continue;
+    }
+    const evidencePath = path.resolve(scenarioRoot, fault.evidence);
+    if (detected.has(`${fault.expectAs}|${evidencePath}`)) continue;
+    undetected.push({
+      fault_id: fault.id,
+      expect_as: fault.expectAs,
+      evidence: fault.evidence,
+      reason: "detector ran, threshold not crossed"
+    });
+  }
+  return undetected;
 }
 
 async function assess(input: unknown): Promise<void> {
   const packets = inputPackets(input);
   const coverage = aggregateCoverage(packets.map((p) => p.coverage as Coverage));
   if (coverage === "unsupported") {
-    jsonOut({ status: "unsupported", coverage, findings: [] });
+    jsonOut({ status: "unsupported", coverage, findings: [], undetected: [] });
     return;
   }
-  const expected = generatedFindings(packets);
-  const raw = await runProvider("assess", { packets, declared_findings: expected }, () => ({ findings: expected }));
+  const declared = declaredFaultsIn(packets);
+  const expected = await detectedFindings(packets);
+  const undetected = undetectedDeclarations(declared, expected);
+  const raw = await runProvider("assess", { packets, detected_findings: expected }, () => ({ findings: expected }));
   if (raw === null || typeof raw !== "object" || !Array.isArray((raw as JsonRecord).findings)) {
     throw new Error("provider refusal: malformed assess output; findings array required");
   }
@@ -192,7 +256,7 @@ async function assess(input: unknown): Promise<void> {
   const actualIds = new Set(findings.map((f) => String((f as JsonRecord).id)));
   if (actualIds.size !== findings.length) throw new Error("provider refusal: duplicate finding returned");
   if ([...actualIds].some((id) => !expectedById.has(id)) || expected.some((f) => !actualIds.has(String(f.id)))) {
-    throw new Error("provider refusal: output does not exactly match declared faults");
+    throw new Error("provider refusal: output does not exactly match detected findings");
   }
   const invariants = ["fault_id", "kind", "evidence", "coverage", "provenance", "source", "target"] as const;
   for (const item of findings as JsonRecord[]) {
@@ -203,7 +267,7 @@ async function assess(input: unknown): Promise<void> {
       }
     }
   }
-  jsonOut({ status: coverage === "complete-within-scope" ? "ok" : coverage, coverage, findings });
+  jsonOut({ status: coverage === "complete-within-scope" ? "ok" : coverage, coverage, findings, undetected });
 }
 
 function stateDir(): string {
@@ -453,6 +517,7 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     if (!packetHashes.has(String(provenance.canonical_hash))) throw new Error("report finding provenance does not refer to an input packet");
   }
   const coverage = aggregateCoverage(packets.map((p) => p.coverage as Coverage));
+  const undetected = undetectedDeclarations(declaredFaultsIn(packets), obj.findings as JsonRecord[]);
   const caveats = packets.flatMap((packet) => {
     const rows: Array<{ scope: string; kind: string; reason: string }> = [];
     for (const key of ["errors", "skipped", "problems"] as const) {
@@ -468,6 +533,7 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     `- Coverage: ${coverage}`,
     `- Packets: ${packets.length}`,
     `- Findings: ${obj.findings.length}`,
+    `- Undetected declarations: ${undetected.length}`,
     ""
   ];
   if (caveats.length > 0) {
@@ -476,7 +542,7 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     lines.push("");
   }
   lines.push("## Findings", "");
-  if (obj.findings.length === 0) lines.push("No declared faults were found in the observed scenario metadata.");
+  if (obj.findings.length === 0) lines.push("No findings were detected; see the undetected declarations for what was not checked.");
   for (const item of obj.findings as JsonRecord[]) {
     const evidence = item.evidence as JsonRecord;
     lines.push(`### ${String(item.fault_id)} (${String(item.kind)})`);
@@ -485,6 +551,13 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     lines.push("");
     lines.push(`- Evidence: ${typeof evidence.path === "string" ? evidence.path : `packet ${String(evidence.packet_hash)}`}`);
     lines.push(`- Coverage: ${String(item.coverage)}`);
+    lines.push("");
+  }
+  if (undetected.length > 0) {
+    lines.push("## Undetected declarations", "");
+    for (const item of undetected) {
+      lines.push(`- ${String(item.fault_id)} (${String(item.expect_as)}): ${String(item.reason)}`);
+    }
     lines.push("");
   }
   const data = {
@@ -499,7 +572,8 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
       problems: p.problems,
       canonical_hash: p.canonical_hash
     })),
-    findings: obj.findings
+    findings: obj.findings,
+    undetected
   };
   const markdown = `${lines.join("\n")}\n`;
   const outputPath = flag(parsed, "--markdown-out");

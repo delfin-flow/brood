@@ -90,10 +90,55 @@ each carries its own observation time, so a gap between runs can be detected wit
 noise. `sha256` of a file fact is over the file bytes; `size` and `mode` are part of the
 fact, not decoration.
 
-## What this does not do
+## Detection and the `undetected` contract
 
-Findings in this version are still derived from each scenario's declared fault list
-(`scenario.yaml`), not measured against the facts. The packet contract above is the
-substrate for real detection — see the roadmap story that re-points finding evidence from
-the manifest to the observed fact. Until then, "finds every declared fault" is true by
-construction, and the packet is the part you can trust.
+A finding comes from a **detector**, never from the scenario manifest. `assess` reads the
+declared faults only as a cross-check list; every finding cites the **observed fact** it
+measured — the fact's `path`, its `sha256`, and the packet's `canonical_hash`. A detector
+re-reads and re-hashes the file before using it and refuses a fact whose bytes changed
+since it was observed (`fact changed since it was observed: <path>`).
+
+Implemented detectors (registry keyed by the manifest's `expect_as`):
+
+| kind | detector |
+|---|---|
+| `storage.headroom_low` | parses a captured `df -h` and reports one `storage.near_full` finding per persistent filesystem whose `Use%` reaches the threshold |
+
+`tmpfs` and `devtmpfs` are skipped — volatile, not the persistent filesystems the cockpit
+documents talk about — and rows that do not parse are dropped rather than guessed at. The
+parse follows the header, not fixed columns.
+
+```json
+{ "id": "detected-…", "fault_id": "storage.near_full", "kind": "storage.headroom_low",
+  "evidence": { "path": "/srv/scenario/dirty-business/etc/brood/packets/df-h.txt",
+                "sha256": "<file sha256>", "packet_hash": "<packet canonical_hash>" },
+  "measured": { "mount": "/srv/data", "use_percent": 93, "threshold": 80 },
+  "coverage": "complete-within-scope", "provenance": { "…": "…" },
+  "source": "/srv/scenario/dirty-business/etc/brood/packets/df-h.txt" }
+```
+
+### The storage threshold is explicit
+
+The machine's own notes disagree — `home/brood/AGENTS.md` and `cockpit/policies.md` say
+80 %, `cockpit/runbook.md` says 85 %. That contradiction is a planted fault of its own, so
+the detector does **not** resolve it. The threshold is read from
+`BROOD_STORAGE_THRESHOLD_PERCENT` (default **80**) and written into `measured.threshold` so
+a reader can disagree with it.
+
+### `undetected` — silence is not a clean bill of health
+
+`assess` returns `undetected` alongside `findings`. Every declared fault is either backed by
+a detection or listed here with a reason:
+
+| situation | `reason` |
+|---|---|
+| no detector is registered for the kind | `no detector for kind '<expect_as>' (implemented detectors: …)` |
+| the detector ran but produced nothing for it | `detector ran, threshold not crossed` |
+
+This is where the honest limits live: **only storage headroom is detected**. Every other
+planted fault (`service.unit_invalid`, `filesystem.broken_symlink`, `backup.restore_unverified`,
+…) appears as `undetected` with the gap named. A scan that finds nothing is still only a
+claim about the detectors that ran.
+
+The `report` command lists the same `undetected` set, so the operator-facing artifact never
+reads as "all clear" when a kind was never checked.

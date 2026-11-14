@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { randomBytes } from "node:crypto";
-import { parseScenarioFaults, canonicalStringify, sha256 } from "../../cli/src/lib.ts";
+import { parseScenarioFaults, canonicalStringify, sha256, type DeclaredFault } from "../../cli/src/lib.ts";
 
 export interface CommandResult {
   code: number;
@@ -143,6 +143,29 @@ async function listDeclaredFaultKeys(root: string): Promise<string[]> {
 
 export async function declaredFaultKeys(): Promise<string[]> {
   return listDeclaredFaultKeys(requireEnvironment().scenarioDir);
+}
+
+async function listDeclaredFaults(root: string): Promise<Array<DeclaredFault & { scenario: string }>> {
+  const records: Array<DeclaredFault & { scenario: string }> = [];
+  const visit = async (directory: string): Promise<void> => {
+    const children = await fs.readdir(directory, { withFileTypes: true });
+    children.sort((a, b) => a.name.localeCompare(b.name, "en"));
+    for (const child of children) {
+      const target = path.join(directory, child.name);
+      if (child.isDirectory()) await visit(target);
+      else if (child.isFile() && child.name === "scenario.yaml") {
+        const content = await fs.readFile(target, "utf8");
+        const relative = path.relative(root, target).split(path.sep).join("/");
+        for (const fault of parseScenarioFaults(content)) records.push({ ...fault, scenario: relative });
+      }
+    }
+  };
+  await visit(root);
+  return records.sort((a, b) => `${a.scenario}|${a.id}`.localeCompare(`${b.scenario}|${b.id}`, "en"));
+}
+
+export async function declaredFaults(): Promise<Array<DeclaredFault & { scenario: string }>> {
+  return listDeclaredFaults(requireEnvironment().scenarioDir);
 }
 
 export async function startBroodEnvironment(): Promise<void> {

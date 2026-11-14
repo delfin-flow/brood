@@ -25,8 +25,7 @@ read; the external build could not run any of it (its own `NOTES.md` says so und
 
 ## Defects found — three, in order of seriousness
 
-> **Status 2026-11-14:** defects 1, 3 and 4 are **fixed** (see *Fixed* below). Defect 2 stands — L3 still
-> proves less than it claims.
+> **Status 2026-11-14:** all four defects are **fixed** (see *Fixed* below).
 
 ### 1. A discoverable fault is classified as a scan failure (design-level)
 
@@ -51,7 +50,7 @@ This violates the design in both directions:
 **Fix:** record a broken symlink as a fact (`kind: filesystem.symlink`, target, `target_exists: false`)
 and keep coverage `complete-within-scope`. Always emit the reason list with a non-complete coverage state.
 
-### 2. L3 proves less than it claims — the "declared-fault echo"
+### 2. L3 proves less than it claims — the "declared-fault echo" ✅ fixed 2026-11-14
 
 `assess` does not detect anything. It reads the scenario's own `scenario.yaml` and emits one finding per
 **declared** fault:
@@ -135,6 +134,28 @@ silently. A new L0 test spawns the CLI, waits for the marker, asserts the proces
 journal. What L4 actually proves is that the state stays consistent with no partial write, recovery is
 re-observation, and the recovered packet set hashes identically to the pre-interruption set.
 
+### Defect 2 — the declared-fault echo (fixed 2026-11-14)
+
+`assess` no longer reads `scenario.yaml` to manufacture findings. It runs a detector registry
+(`suite/cli/src/detectors.ts`) over the packet facts; the only registered detector is
+`storage.headroom_low`, which parses a captured `df -h` by header and reports one
+`storage.near_full` finding per persistent filesystem whose `Use%` reaches
+`BROOD_STORAGE_THRESHOLD_PERCENT` (default 80). The finding cites the **fact** — `path`, `sha256`,
+packet `canonical_hash` — and the detector re-hashes the bytes, refusing a file that changed after
+observation. The threshold is explicit and recorded in `measured` because the machine's own
+notes contradict each other on 80 % vs 85 %; that contradiction is a separate planted fault the
+detector must not resolve.
+
+The suite's own assertion is now falsifiable: L3 requires every finding's evidence path to be an
+observed fact with a matching hash and explicitly forbids `scenario.yaml` as evidence. `storage.near_full`
+is found for `dirty-business` and `hostile` (93 % on `/srv/data`) and **absent** for `clean`,
+`dirty-dev` and `partial` (57 %) — the negative control is driven by separate scoped observations.
+
+**Honest limit:** only storage headroom is detected. Every other declared fault is returned in
+`undetected` with the gap named (`no detector for kind 'service.unit_invalid' (…)`), and a detector
+that ran without crossing its threshold says `detector ran, threshold not crossed`. L3 still proves
+the traceability and the negative control — not that the remaining planted faults are detectable.
+
 ### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
 
 Found while making L2 green: the harness passed `BROOD_STATE_DIR`, `BROOD_MUTABLE_ROOT` and
@@ -148,8 +169,7 @@ machine and everything about a test harness that *looked* wired up.
 
 1. ~~Fix defect 1 — symlinks as facts, and always report the coverage reason.~~ Done; it was the rule
    the whole design rests on.
-2. Add one real detector (storage headroom is the easiest: compare `df` facts against the threshold) and
-   re-point L3's evidence at the fact, not the manifest. Until then L3 is decoration.
+2. ~~Add one real detector (storage headroom is the easiest: compare `df` facts against the threshold) and re-point L3's evidence at the fact, not the manifest. Until then L3 is decoration.~~ Done — one detector, traceable evidence, a working negative control, and the rest honestly `undetected`.
 3. ~~Fix the L4 kill helper.~~ Done — it was never the helper; see defect 3.
 4. `fixtures/materialize.sh` exists but is not wired into the test run. Note for when it is: once the
    `hostile` permissions are applied, a whole-`fixtures` scope correctly reports `partial`, so the

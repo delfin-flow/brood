@@ -15,8 +15,8 @@ serves: the "business operations workspace" offer (agentic operations).
 
 - **The three zips landed and are assembled** under the repository root: `image/` (the machine),
   `fixtures/` (five dirty scenarios), `suite/` (`broodctl` + Vitest). Committed.
-- **Verified on this machine** (Docker 29.9.3, Node 24.19.0): `npm test` = **30 tests** offline, `tsc
-  --noEmit` clean, **all five integration tests pass** — L2, L3 (both cases), L4 and blast radius —
+- **Verified on this machine** (Docker 29.9.3, Node 24.19.0): `npm test` = **39 tests** offline, `tsc
+  --noEmit` clean, **all eight integration tests pass** — L2, L3 (five cases), L4 and blast radius —
   and the image builds with key-only SSH.
 - **S1 — coverage honesty.** A broken symlink is a fact (`filesystem.symlink`, `target_exists: false`),
   the scan stays `complete-within-scope`, and every non-complete packet carries
@@ -28,10 +28,14 @@ serves: the "business operations workspace" offer (agentic operations).
 - **S4 — manifest ↔ parser.** The parser now reads the fixtures' own fields (`id`, `expect_as`,
   `evidence`, `discoverable_by`, optional `note`) and **fails loudly on an unknown field**; the
   `kind`/`type`/`check` and `planted_faults` tolerances are gone.
-- **The one defect that stands** — L3 is still a declared-fault echo: `assess` reads each scenario's
-  `scenario.yaml` and emits one finding per declaration, so "finds every declared fault" is true by
-  construction. S2 is the story that makes it mean something.
-- **S1/S3/S4 acceptance is met and verified here; each stays 🔄 until the owner confirms it.**
+- **S2 — one real detector.** `assess` runs a detector registry over packet facts; the only registered
+  detector is `storage.headroom_low`, which parses a captured `df -h` by header and reports
+  `storage.near_full` per persistent filesystem at or over `BROOD_STORAGE_THRESHOLD_PERCENT` (default
+  80). Findings cite the **fact** (`path` + `sha256` + packet hash) and the detector re-hashes the bytes,
+  refusing a file that changed after observation. Declared faults are the cross-check list: every one is
+  either detected or returned in `undetected` with the gap named. Only storage is detected; the rest is
+  honestly undetected.
+- **S1/S2/S3/S4 acceptance is met and verified here; each stays 🔄 until the owner confirms it.**
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that is
   the point of S6, not a current fact.
 
@@ -59,7 +63,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | # | Story | Stage | Status | Acceptance |
 |---|-------|-------|--------|------------|
 | S1 | **Fix coverage honesty** — record a broken symlink as a fact (`kind: filesystem.symlink`, `target_exists: false`), keep `complete-within-scope`, and always emit the coverage *reason* list (`errors`/`skipped`/`problems`) whenever a scan is not complete | optimisation | 🔄 | L2 goes green; `dirty-business` reports `complete-within-scope`; a removed collector still reports `unsupported` with a reason |
-| S2 | **One real detector** — implement storage-headroom detection (compare `df` facts against the declared threshold) and re-point L3's evidence at the observed *fact*, not the manifest | optimisation | ⬜ | L3 finds `storage.near_full` by citing a packet fact; the "declared-fault echo" path is removed or gated behind a real check |
+| S2 | **One real detector** — implement storage-headroom detection (compare `df` facts against the declared threshold) and re-point L3's evidence at the observed *fact*, not the manifest | optimisation | 🔄 | L3 finds `storage.near_full` by citing a packet fact; the "declared-fault echo" path is removed or gated behind a real check |
 | S3 | **Fix the L4 interruption test** — repair the kill helper so the signal reaches the right pid, then make recovery actually pass | optimisation | 🔄 | L4 green: interrupted observe leaves a recoverable journal; expired/altered approval refused; revert exercised |
 | S4 | **Manifest ↔ parser agreement** — read `expect_as` and `discoverable_by` (the fixtures already declare them), and drop the tolerance for unknown fields | optimisation | 🔄 | A `scenario.yaml` with a wrong field name fails loudly, not silently |
 | S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; make it part of `just test:int` so a fresh checkout is hostile without a manual step | scripts | ⬜ | A fresh clone + `just test:int` reproduces the same fault set as the zip |
@@ -82,9 +86,9 @@ not copied**. A story's hand-off names the stem; the body lives in the queue.
 
 | Story | Note stem | Status |
 |---|---|---|
-| S2 storage-headroom detector | `2026-11-14-01-flash-brood-s2-storage-headroom-detector` | open |
+| S2 storage-headroom detector | `2026-11-14-01-flash-brood-s2-storage-headroom-detector` | done |
 | S5 fixture materialisation | `2026-11-14-02-flash-brood-s5-fixture-materialisation` | open |
 | v0 acceptance run (not a story — the review gate) | `2026-11-14-03-flash-brood-v0-verification-gate` | open |
 
-S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); their acceptance is met and verified, and
-each stays 🔄 until the owner confirms it.
+S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); S2 ran as a flash handoff. Their acceptance
+is met and verified, and each stays 🔄 until the owner confirms it.

@@ -26,13 +26,13 @@ brood/
 
 | Layer | Result |
 |---|---|
-| L0 unit — 15 tests | ✅ pass, no Docker, no network |
+| L0 unit — 24 tests | ✅ pass, no Docker, no network |
 | L1 contract — 15 tests | ✅ pass, no Docker, no network |
 | `tsc --noEmit` | ✅ clean |
 | Image builds | ✅ `brood-image:local` (310 MB) |
 | SSH in (key-only, unprivileged `brood`) | ✅ works |
 | L2 integration | ✅ pass (coverage honesty fixed 2026-11-14 — see `FINDINGS.md`) |
-| L3 declared-fault acceptance | ⚠️ passes, but it still proves less than it claims (S2) |
+| L3 detection from observed facts | ✅ pass — findings cite packet facts; only storage headroom is detected, everything else is `undetected` with a reason |
 | L4 recovery | ✅ pass (the failpoint, not the kill helper, was the defect) |
 | Blast radius | ✅ fixture tree unchanged byte-for-byte and mode-for-mode |
 
