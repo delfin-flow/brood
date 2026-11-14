@@ -1,0 +1,30 @@
+# Offline proof layers only.
+#
+# L0 (unit) and L1 (contract) need no Docker, no network, no provider key and no spend;
+# they finish in about a second, so they gate every push and pull request. The integration
+# layers (L2-L4, blast radius) are deliberately NOT here: they need Docker and a derived
+# test image built from the delivered machine image, which makes them slow, host-specific
+# and flaky on hosted runners. Run them locally with `npm run test:int` (see README.md).
+# Do not "fix" this workflow by adding them.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: suite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: suite/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npx tsc --noEmit

@@ -28,9 +28,10 @@ Clean-room run 2026-11-14 (fresh clone, no untracked files): `docs/verification-
 
 | Layer | Result |
 |---|---|
-| L0 unit — 24 tests | ✅ pass, no Docker, no network |
-| L1 contract — 15 tests | ✅ pass, no Docker, no network |
-| `npm test` offline, in `unshare -rn` | ✅ 39 tests pass with no network namespace |
+| L0 unit — 26 tests | ✅ pass, no Docker, no network |
+| L1 contract — 21 tests | ✅ pass, no Docker, no network |
+| `npm test` offline, in `unshare -rn` | ✅ 47 tests pass with no network namespace |
+| CI (`main`) | `.github/workflows/ci.yml` runs `npm ci`, `npm test` and `tsc --noEmit` on Node 24, every push and pull request |
 | `tsc --noEmit` | ✅ clean |
 | Image builds | ✅ `brood-image:local` (310 MB), also with `--no-cache` |
 | SSH in (key-only, unprivileged `brood`) | ✅ works |
@@ -40,8 +41,8 @@ Clean-room run 2026-11-14 (fresh clone, no untracked files): `docs/verification-
 | Fixture materialisation guard | ✅ pass (runs the hostile case only when `BROOD_SCENARIO=hostile`) |
 | Blast radius | ✅ fixture tree unchanged byte-for-byte and mode-for-mode |
 
-Per scenario (full integration suite): `clean`, `dirty-dev`, `dirty-business`, `partial` = 8 passed /
-1 skipped; `hostile` = 9 passed. What the suite does **not** prove (one detector, one collector, no
+Per scenario (full integration suite): `clean`, `dirty-dev`, `dirty-business`, `partial` = 9 passed /
+1 skipped; `hostile` = 10 passed. What the suite does **not** prove (one detector, one collector, no
 unattended cycle, no A1–A10 gates) is written down in `docs/verification-2026-11-14.md`.
 
 ## Run it
