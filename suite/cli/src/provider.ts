@@ -50,7 +50,7 @@ export async function runProvider<T>(
   const apiKey = process.env.BROOD_PROVIDER_API_KEY;
   if (!apiKey) throw new Error("real provider refused: BROOD_PROVIDER_API_KEY is required");
   const endpoint = process.env.BROOD_PROVIDER_URL;
-  if (!endpoint) throw new Error("not implemented: set BROOD_PROVIDER_URL for the real provider adapter");
+  if (!endpoint) throw new Error("real provider refused: BROOD_PROVIDER_URL is not set; it must accept { operation, input } JSON");
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },

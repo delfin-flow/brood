@@ -261,3 +261,48 @@ describe("L1 — declared-chain honesty", () => {
   });
 });
 
+function runCli(args: string[], input: unknown, env: Record<string, string> = {}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["cli/src/index.ts", ...args], {
+      cwd: path.resolve(import.meta.dirname, "../.."),
+      env: { ...process.env, BROOD_PROVIDER: "fake", ...env },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => out.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => err.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) reject(new Error(`cli exited ${code}: ${Buffer.concat(err).toString()}${Buffer.concat(out).toString()}`));
+      else resolve(Buffer.concat(out).toString("utf8"));
+    });
+    child.stdin?.end(input === undefined ? undefined : JSON.stringify(input));
+  });
+}
+
+describe("L1 — CLI surface", () => {
+  it("answers --version with the version declared in package.json", async () => {
+    const pkg = JSON.parse(await (await import("node:fs/promises")).readFile(path.resolve(import.meta.dirname, "../../package.json"), "utf8")) as { version: string };
+    expect((await runCli(["--version"], undefined)).trim()).toBe(`broodctl ${pkg.version}`);
+  });
+
+  it("keeps default state under the XDG state home, not a dotfile in $HOME", async () => {
+    const root = await (await import("node:fs/promises")).mkdtemp(path.join((await import("node:os")).tmpdir(), "brood-state-"));
+    try {
+      const finding = {
+        id: "state-dir-test",
+        fault_id: "test",
+        kind: "test-only",
+        evidence: { path: "/tmp/brood-state-proof.txt" },
+        coverage: "complete-within-scope",
+        provenance: { observed_at: "2026-11-14T00:00:00.000Z", collector: { name: "filesystem", version: "1.0.0" }, canonical_hash: "a".repeat(64) }
+      };
+      await runCli(["propose"], [finding], { XDG_STATE_HOME: root, HOME: root });
+      const proposals = await (await import("node:fs/promises")).readdir(path.join(root, "brood", "proposals"));
+      expect(proposals).toHaveLength(1);
+    } finally {
+      await (await import("node:fs/promises")).rm(root, { recursive: true, force: true });
+    }
+  });
+});

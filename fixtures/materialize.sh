@@ -24,16 +24,39 @@ done
 
 scenarios=("$@"); [ ${#scenarios[@]} -eq 0 ] && scenarios=(clean dirty-dev dirty-business hostile partial)
 
+failures=()
+
 for s in "${scenarios[@]}"; do
   [ -d "$root/$s" ] || { echo "no such scenario: $s (under $root)" >&2; exit 1; }
   # 1. restore git repositories
   while IFS= read -r -d '' g; do mv "$g" "${g%.fixture}"; done \
     < <(find "$root/$s" -type d -name '.git.fixture' -print0)
   # 2. the hostile scenario's permission faults (declared in its scenario.yaml)
+  #    A chmod that silently fails leaves the fault readable, which only the hostile-only
+  #    guard test would ever notice — so verify the mode instead of trusting the exit code.
   if [ "$s" = hostile ]; then
-    chmod 000 "$root/hostile/home/keeper/locked" 2>/dev/null || true
-    chmod 000 "$root/hostile/srv/isolated/unreadable" 2>/dev/null || true
+    for target in "$root/hostile/home/keeper/locked" "$root/hostile/srv/isolated/unreadable"; do
+      if [ ! -e "$target" ]; then
+        failures+=("$target (missing)")
+        continue
+      fi
+      if ! chmod 000 "$target" 2>/dev/null; then
+        failures+=("$target (chmod 000 failed)")
+        continue
+      fi
+      mode=$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target" 2>/dev/null || echo unknown)
+      case "$mode" in
+        0|00|000|0000) ;;
+        *) failures+=("$target (mode is $mode, expected 000)") ;;
+      esac
+    done
   fi
 done
+
+if [ ${#failures[@]} -gt 0 ]; then
+  printf 'ERROR: could not materialise the declared faults:\n' >&2
+  printf '  %s\n' "${failures[@]}" >&2
+  exit 1
+fi
 
 echo "materialised: ${scenarios[*]} (root: $root)"

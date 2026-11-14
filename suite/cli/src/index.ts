@@ -27,6 +27,9 @@ import { collectFilesystem, type Fact } from "./collector.ts";
 import { DETECTORS, storageThreshold } from "./detectors.ts";
 import { runProvider } from "./provider.ts";
 
+/** `broodctl --version`; kept in step with package.json by an L1 test. */
+const VERSION = "1.0.0";
+
 type Packet = JsonRecord & {
   schema_version: 1;
   kind: "filesystem.snapshot" | "coverage.status";
@@ -292,8 +295,16 @@ async function assess(input: unknown): Promise<void> {
   jsonOut({ status: coverage === "complete-within-scope" ? "ok" : coverage, coverage, findings, undetected, declarations });
 }
 
+/**
+ * Proposal/receipt records carry reversible file content, so they belong in the user's
+ * state directory (XDG), not in a dotfile at the top of `$HOME`.
+ */
 function stateDir(): string {
-  return path.resolve(process.env.BROOD_STATE_DIR ?? path.join(os.homedir(), ".brood"));
+  const configured = process.env.BROOD_STATE_DIR;
+  if (configured && configured.trim()) return path.resolve(configured);
+  const xdg = process.env.XDG_STATE_HOME;
+  const base = xdg && xdg.trim() ? path.resolve(xdg) : path.join(os.homedir(), ".local", "state");
+  return path.join(base, "brood");
 }
 
 async function ensureStateDirs(): Promise<void> {
@@ -621,6 +632,7 @@ function declarationLine(declarations: DeclarationsSummary): string {
 function usage(): string {
   return [
     "broodctl <command>",
+    "  --version",
     "  observe --scope <path…>",
     "  assess                         # JSON packets on stdin",
     "  propose                        # JSON findings on stdin",
@@ -634,6 +646,10 @@ function usage(): string {
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
+  if (command === "--version" || command === "-v" || command === "version") {
+    process.stdout.write(`broodctl ${VERSION}\n`);
+    return;
+  }
   if (!command || command === "--help" || command === "help") {
     process.stdout.write(`${usage()}\n`);
     return;

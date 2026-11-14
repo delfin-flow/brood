@@ -101,8 +101,8 @@ directories exist, so a whole-tree mount could not tell a planted fault from a b
 
 ## Non-negotiables this build honours
 
-- **No `COPY` of content** — the Dockerfile declares only the machine; fixtures arrive by bind mount.
-- **Never `COPY` in the brief sense:** fixtures are mounted at `/srv/scenario` read-only by the harness.
+- **Never `COPY` content into an image layer** — the Dockerfile declares only the machine; fixtures
+  arrive by bind mount (the derived test image copies the *tool* and a throwaway key, never content).
 - **Key-only SSH**, unprivileged user, no password path at all (`AuthenticationMethods publickey`).
 - **Port bound to `127.0.0.1` only** on the delivered compose file.
 - **No agent loop inside** — no daemon, no scheduler, no broker.

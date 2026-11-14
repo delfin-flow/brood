@@ -4,12 +4,6 @@
 Node 24.19.0. Everything below was run, not read; the external build could not run any of it (its own
 `NOTES.md` says so under **Unmet**). The clean-room run, its commands and its counts are recorded in
 `docs/verification-2026-11-14.md`.
-> **Status 2026-11-14:** all three are **fixed** (S9 / the delivery recipe). `suite/sshd_config.test` is
-> committed (the derived image's own config, so a clone builds it with no `cp`); `down.sh` runs
-> `docker compose down --rmi local`, scoped to the project's own image, so `brood-test:local` survives;
-> and `up.sh` materialises a runtime **copy** of one scenario under `image/.runtime/scenario/` and
-> mounts that, so a fresh clone's machine has the planted faults and the repository's `fixtures/` tree
-> is never the mount source. The three items below are kept as the record of what the clone run found.
 
 ---
 
@@ -31,9 +25,9 @@ Node 24.19.0. Everything below was run, not read; the external build could not r
 5. **The suite is free.** 39 tests (L0 24 + L1 15) run with no Docker, no network, no key, in about
    500 ms — re-run inside `unshare -rn` with the same result. `tsc --noEmit` is clean.
 
-## Defects found — three, in order of seriousness
+## Defects found — five, in order of seriousness
 
-> **Status 2026-11-14:** all four defects are **fixed** (see *Fixed* below).
+> **Status 2026-11-14:** all five defects are **fixed** (see *Fixed* below).
 
 ### 1. A discoverable fault is classified as a scan failure (design-level)
 
@@ -119,6 +113,29 @@ Verified on this machine: `dirty-business` → `complete-within-scope` with the 
 as a fact; **L2 green**, L3 green, blast radius green. `npm test` = **39** offline tests today
 (27 at that point, 18 before S2 and S5).
 
+### Defect 2 — the declared-fault echo (fixed 2026-11-14)
+
+`assess` no longer reads `scenario.yaml` to manufacture findings. It runs a detector registry
+(`suite/cli/src/detectors.ts`) over the packet facts; the only registered detector is
+`storage.headroom_low`, which parses a captured `df -h` by header and reports one
+`storage.near_full` finding per persistent filesystem whose `Use%` reaches
+`BROOD_STORAGE_THRESHOLD_PERCENT` (default 80). The finding cites the **fact** — `path`, `sha256`,
+packet `canonical_hash` — and the detector re-hashes the bytes, refusing a file that changed after
+observation. The threshold is explicit and recorded in `measured` because the machine's own
+notes contradict each other on 80 % vs 85 %; that contradiction is a separate planted fault the
+detector must not resolve.
+
+The suite's own assertion is now falsifiable: L3 requires every finding's evidence path to be an
+observed fact with a matching hash and explicitly forbids `scenario.yaml` as evidence. `storage.near_full`
+is found on `dirty-business` and `hostile` (93 % on `/srv/data`, each on its own mount) and **absent**
+for `clean`, `dirty-dev` and `partial` (57 %) — the negative control is a separate mount, not a scoped
+sub-walk of one shared tree.
+
+**Honest limit:** only storage headroom is detected. Every other declared fault is returned in
+`undetected` with the gap named (`no detector for kind 'service.unit_invalid' (…)`), and a detector
+that ran without crossing its threshold says `detector ran, threshold not crossed`. L3 still proves
+the traceability and the negative control — not that the remaining planted faults are detectable.
+
 ### Defect 3 — the failpoint never held the process (fixed 2026-11-14)
 
 The recorded diagnosis — "the pid comes from a `ps` parse and the signal is sent through another SSH
@@ -143,28 +160,14 @@ silently. A new L0 test spawns the CLI, waits for the marker, asserts the proces
 journal. What L4 actually proves is that the state stays consistent with no partial write, recovery is
 re-observation, and the recovered packet set hashes identically to the pre-interruption set.
 
-### Defect 2 — the declared-fault echo (fixed 2026-11-14)
+### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
 
-`assess` no longer reads `scenario.yaml` to manufacture findings. It runs a detector registry
-(`suite/cli/src/detectors.ts`) over the packet facts; the only registered detector is
-`storage.headroom_low`, which parses a captured `df -h` by header and reports one
-`storage.near_full` finding per persistent filesystem whose `Use%` reaches
-`BROOD_STORAGE_THRESHOLD_PERCENT` (default 80). The finding cites the **fact** — `path`, `sha256`,
-packet `canonical_hash` — and the detector re-hashes the bytes, refusing a file that changed after
-observation. The threshold is explicit and recorded in `measured` because the machine's own
-notes contradict each other on 80 % vs 85 %; that contradiction is a separate planted fault the
-detector must not resolve.
-
-The suite's own assertion is now falsifiable: L3 requires every finding's evidence path to be an
-observed fact with a matching hash and explicitly forbids `scenario.yaml` as evidence. `storage.near_full`
-is found on `dirty-business` and `hostile` (93 % on `/srv/data`, each on its own mount) and **absent**
-for `clean`, `dirty-dev` and `partial` (57 %) — the negative control is a separate mount, not a scoped
-sub-walk of one shared tree.
-
-**Honest limit:** only storage headroom is detected. Every other declared fault is returned in
-`undetected` with the gap named (`no detector for kind 'service.unit_invalid' (…)`), and a detector
-that ran without crossing its threshold says `detector ran, threshold not crossed`. L3 still proves
-the traceability and the negative control — not that the remaining planted faults are detectable.
+Found while making L2 green: the harness passed `BROOD_STATE_DIR`, `BROOD_MUTABLE_ROOT` and
+`BROOD_APPROVAL_SECRET` to the container with `docker run --env`, which reaches PID 1 only — an SSH
+session starts with a fresh environment. Propose/apply therefore failed with `BROOD_MUTABLE_ROOT must
+be set`, one assertion after the coverage bug had been fixed. The harness now passes its provisioned
+state on every remote CLI call (`suite/tests/support/remote.ts`). This defects nothing about the
+machine and everything about a test harness that *looked* wired up.
 
 ### Defect 5 — the harness mounted a checkout, not the delivered machine (fixed 2026-11-14)
 
@@ -187,20 +190,18 @@ on the barrier is still detected, its contents are simply unobservable by design
 scan is legitimately `complete-within-scope` and `assess` returns `ok` with the declared gap in
 `undetected`; only `hostile`, whose partiality is a real unreadable directory, reports `partial`.
 
-### Defect 4 — the harness never gave the SSH session its own environment (fixed 2026-11-14)
-
-Found while making L2 green: the harness passed `BROOD_STATE_DIR`, `BROOD_MUTABLE_ROOT` and
-`BROOD_APPROVAL_SECRET` to the container with `docker run --env`, which reaches PID 1 only — an SSH
-session starts with a fresh environment. Propose/apply therefore failed with `BROOD_MUTABLE_ROOT must
-be set`, one assertion after the coverage bug had been fixed. The harness now passes its provisioned
-state on every remote CLI call (`suite/tests/support/remote.ts`). This defects nothing about the
-machine and everything about a test harness that *looked* wired up.
-
 ## Defects found by the 2026-11-14 clean-room run
 
 Found by rebuilding everything from a **fresh clone** rather than from the working checkout; all three
 are delivery/recipe defects, not behaviour defects. Detail and reproduction in
 `docs/verification-2026-11-14.md`.
+
+> **Status 2026-11-14:** all three are **fixed** (S9 / the delivery recipe). `suite/sshd_config.test` is
+> committed (the derived image's own config, so a clone builds it with no `cp`); `down.sh` runs
+> `docker compose down --rmi local`, scoped to the project's own image, so `brood-test:local` survives;
+> and `up.sh` materialises a runtime **copy** of one scenario under `image/.runtime/scenario/` and
+> mounts that, so a fresh clone's machine has the planted faults and the repository's `fixtures/` tree
+> is never the mount source. The three items below are kept as the record of what the clone run found.
 
 1. **A fresh clone cannot build the test image.** `suite/Dockerfile.test` does
    `COPY sshd_config.test`, which nothing generates and `.gitignore` excludes; the build fails with
