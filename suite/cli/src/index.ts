@@ -7,9 +7,10 @@ import {
   aggregateCoverage,
   canonicalPacketHash,
   canonicalStringify,
-  parseScenarioFaults,
+  parseScenarioManifest,
   safeRelativePath,
   sha256,
+  summarizeDeclarations,
   unifiedDiff,
   validateFinding,
   validatePacket,
@@ -17,8 +18,10 @@ import {
   validateReceipt,
   type Coverage,
   type CoverageReasons,
+  type DeclarationsSummary,
   type DeclaredFault,
-  type JsonRecord
+  type JsonRecord,
+  type ScenarioManifest
 } from "./lib.ts";
 import { collectFilesystem, type Fact } from "./collector.ts";
 import { DETECTORS, storageThreshold } from "./detectors.ts";
@@ -142,23 +145,29 @@ interface DeclaredFaultLocation {
   scenarioRoot: string;
 }
 
-/** The declared faults are the cross-check list — never the source of a finding. */
-function declaredFaultsIn(packets: JsonRecord[]): DeclaredFaultLocation[] {
-  const declared: DeclaredFaultLocation[] = [];
+/** Every scenario manifest embedded in the observed facts, with its declared header. */
+function observedManifests(packets: JsonRecord[]): ScenarioManifest[] {
+  const manifests: ScenarioManifest[] = [];
   const seen = new Set<string>();
   for (const packet of packets) {
     if (packet.kind !== "filesystem.snapshot") continue;
     for (const fact of packet.facts as Fact[]) {
       if (fact.kind !== "filesystem.file") continue;
       if (typeof fact.content !== "string" || path.basename(fact.path) !== "scenario.yaml") continue;
-      const scenarioRoot = path.dirname(fact.path);
-      for (const fault of parseScenarioFaults(fact.content)) {
-        const key = `${scenarioRoot}|${fault.index}|${fault.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        declared.push({ fault, scenarioRoot });
-      }
+      const root = path.dirname(fact.path);
+      if (seen.has(root)) continue;
+      seen.add(root);
+      manifests.push(parseScenarioManifest(fact.content, root));
     }
+  }
+  return manifests;
+}
+
+/** The declared faults are the cross-check list — never the source of a finding. */
+function declaredFaultsIn(manifests: ScenarioManifest[]): DeclaredFaultLocation[] {
+  const declared: DeclaredFaultLocation[] = [];
+  for (const manifest of manifests) {
+    for (const fault of manifest.faults) declared.push({ fault, scenarioRoot: manifest.root });
   }
   return declared;
 }
@@ -239,11 +248,24 @@ function undetectedDeclarations(declared: DeclaredFaultLocation[], findings: Jso
 async function assess(input: unknown): Promise<void> {
   const packets = inputPackets(input);
   const coverage = aggregateCoverage(packets.map((p) => p.coverage as Coverage));
+  const manifests = observedManifests(packets);
+  const declarations = summarizeDeclarations(manifests);
   if (coverage === "unsupported") {
-    jsonOut({ status: "unsupported", coverage, findings: [], undetected: [] });
+    jsonOut({
+      status: "unsupported",
+      coverage,
+      findings: [],
+      undetected: [],
+      declarations: {
+        ...declarations,
+        resolved: false,
+        reason: "no scenario manifest was observed: the scan is unsupported",
+        unverified_count: null
+      }
+    });
     return;
   }
-  const declared = declaredFaultsIn(packets);
+  const declared = declaredFaultsIn(manifests);
   const expected = await detectedFindings(packets);
   const undetected = undetectedDeclarations(declared, expected);
   const raw = await runProvider("assess", { packets, detected_findings: expected }, () => ({ findings: expected }));
@@ -267,7 +289,7 @@ async function assess(input: unknown): Promise<void> {
       }
     }
   }
-  jsonOut({ status: coverage === "complete-within-scope" ? "ok" : coverage, coverage, findings, undetected });
+  jsonOut({ status: coverage === "complete-within-scope" ? "ok" : coverage, coverage, findings, undetected, declarations });
 }
 
 function stateDir(): string {
@@ -517,7 +539,9 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     if (!packetHashes.has(String(provenance.canonical_hash))) throw new Error("report finding provenance does not refer to an input packet");
   }
   const coverage = aggregateCoverage(packets.map((p) => p.coverage as Coverage));
-  const undetected = undetectedDeclarations(declaredFaultsIn(packets), obj.findings as JsonRecord[]);
+  const manifests = observedManifests(packets);
+  const declarations = summarizeDeclarations(manifests);
+  const undetected = undetectedDeclarations(declaredFaultsIn(manifests), obj.findings as JsonRecord[]);
   const caveats = packets.flatMap((packet) => {
     const rows: Array<{ scope: string; kind: string; reason: string }> = [];
     for (const key of ["errors", "skipped", "problems"] as const) {
@@ -534,6 +558,7 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
     `- Packets: ${packets.length}`,
     `- Findings: ${obj.findings.length}`,
     `- Undetected declarations: ${undetected.length}`,
+    declarationLine(declarations),
     ""
   ];
   if (caveats.length > 0) {
@@ -573,12 +598,24 @@ async function report(input: unknown, parsed: ReturnType<typeof argsAfterCommand
       canonical_hash: p.canonical_hash
     })),
     findings: obj.findings,
-    undetected
+    undetected,
+    declarations
   };
   const markdown = `${lines.join("\n")}\n`;
   const outputPath = flag(parsed, "--markdown-out");
   if (outputPath) await fs.writeFile(path.resolve(outputPath), markdown, { mode: 0o600 });
   jsonOut({ status: "ok", markdown, json: data });
+}
+
+function declarationLine(declarations: DeclarationsSummary): string {
+  const base = `- Declared set: ${declarations.declared_count} faults from the observed manifests`;
+  if (declarations.resolved) {
+    return declarations.extends === null ? base : `${base}; inheritance via '${declarations.extends}' resolved in scope`;
+  }
+  const unverified = declarations.unverified_count === null
+    ? "inherited declarations unverified; count unknown"
+    : `${declarations.unverified_count} declarations unverified`;
+  return `${base}; inheritance via '${declarations.extends}' not verifiable in scope (${unverified})`;
 }
 
 function usage(): string {

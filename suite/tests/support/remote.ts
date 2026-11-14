@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { parseScenarioFaults, canonicalStringify, sha256, type DeclaredFault } from "../../cli/src/lib.ts";
+import { parseScenarioFaults, parseScenarioHeader, canonicalStringify, sha256, type DeclaredFault, type ScenarioHeader } from "../../cli/src/lib.ts";
 
 /** Where the harness mounts the materialised scenario inside the container. */
 export const REMOTE_SCENARIO_ROOT = "/srv/scenario";
@@ -210,10 +210,11 @@ export async function declaredFaults(): Promise<Array<DeclaredFault & { scenario
 
 /**
  * Declarations that apply to the mounted scenario, following its `extends:` chain.
- * A derived scenario (e.g. `hostile extends dirty-business`) keeps the inherited faults
- * "declared in their source manifests", so a cross-check that only walked the mount
- * could not tell an invented kind from an inherited one. Reading the chain in the fixture
- * tree (not the mount) keeps that honest without adding anything the fixtures do not say.
+ *
+ * This is the harness's own cross-check, not the assertion: a derived scenario
+ * (`hostile extends dirty-business`) keeps the inherited faults in the parent's manifest,
+ * which the CLI cannot see when only the child is mounted. The suite asserts the CLI's
+ * `declarations` block and uses this walk only to prove the CLI is not over-claiming.
  */
 export async function declaredFaultChain(): Promise<Array<DeclaredFault & { scenario: string }>> {
   const environment = requireEnvironment();
@@ -239,6 +240,12 @@ export async function declaredFaultChain(): Promise<Array<DeclaredFault & { scen
 export async function declaredExpectedCoverage(): Promise<string> {
   const content = await fs.readFile(path.join(requireEnvironment().scenarioDir, "scenario.yaml"), "utf8");
   return /^expected_coverage:[ \t]*(\S+)[ \t]*$/m.exec(content)?.[1] ?? "unknown";
+}
+
+/** The mounted manifest's own header (`name`, `extends`) — the only inheritance the CLI can see. */
+export async function declaredManifestHeader(): Promise<ScenarioHeader> {
+  const content = await fs.readFile(path.join(requireEnvironment().scenarioDir, "scenario.yaml"), "utf8");
+  return parseScenarioHeader(content);
 }
 
 export async function startBroodEnvironment(): Promise<void> {

@@ -268,6 +268,130 @@ export function parseScenarioFaults(content: string): DeclaredFault[] {
   });
 }
 
+/**
+ * A scenario manifest as observed in a packet. `extends` names the parent scenario whose
+ * own `scenario.yaml` declares the inherited faults; it is optional and may be null.
+ */
+export interface ScenarioManifest {
+  /** Manifest `name`, falling back to the directory name holding it. */
+  name: string;
+  /** Absolute directory that holds the manifest (the scenario root). */
+  root: string;
+  /** Parent scenario name, or null when the scenario inherits nothing. */
+  extends: string | null;
+  faults: DeclaredFault[];
+}
+
+export interface ScenarioHeader {
+  name: string | null;
+  extends: string | null;
+}
+
+/** The header fields a derived scenario needs; the fault list is parsed separately. */
+export function parseScenarioHeader(content: string): ScenarioHeader {
+  const parsed: unknown = parseYaml(content);
+  if (!isObject(parsed)) throw new Error("scenario.yaml must contain a YAML object");
+  const scenario = isObject(parsed.scenario) ? parsed.scenario : undefined;
+  const pick = (key: string): unknown =>
+    key in parsed ? parsed[key] : scenario && key in scenario ? scenario[key] : undefined;
+  const nameValue = pick("name");
+  if (nameValue !== undefined && nameValue !== null && typeof nameValue !== "string") {
+    throw new Error("scenario.yaml name must be a string");
+  }
+  const extendsValue = pick("extends");
+  if (extendsValue !== undefined && extendsValue !== null && typeof extendsValue !== "string") {
+    throw new Error("scenario.yaml extends must be a scenario name or null");
+  }
+  return {
+    name: typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : null,
+    extends: typeof extendsValue === "string" && extendsValue.trim() ? extendsValue.trim() : null
+  };
+}
+
+export function parseScenarioManifest(content: string, root: string): ScenarioManifest {
+  const header = parseScenarioHeader(content);
+  return {
+    name: header.name ?? path.basename(root),
+    root,
+    extends: header.extends,
+    faults: parseScenarioFaults(content)
+  };
+}
+
+/**
+ * What the observed manifests declare, and how much of the declared set could be verified.
+ *
+ * A derived scenario (`extends:`) keeps its inherited faults in the parent's manifest. When
+ * that manifest is not among the observed facts, the CLI cannot count them: it names the
+ * unresolved parent and reports `unverified_count: null` rather than inventing a number.
+ */
+export interface DeclarationsSummary {
+  source: "observed manifests";
+  /** True only when every observed chain resolved through manifests present in scope. */
+  resolved: boolean;
+  /** The unresolved parent (or the single root's direct parent when resolved). */
+  extends: string | null;
+  reason?: string;
+  /** Faults declared by the manifests the chain walk could see. */
+  declared_count: number;
+  unverified_inheritance: string | null;
+  /** 0 when resolved; null when the parent manifest is out of scope (count unknowable). */
+  unverified_count: number | null;
+}
+
+export function summarizeDeclarations(manifests: ScenarioManifest[]): DeclarationsSummary {
+  const byName = new Map<string, ScenarioManifest>();
+  for (const manifest of manifests) if (!byName.has(manifest.name)) byName.set(manifest.name, manifest);
+  const parents = new Set<string>();
+  for (const manifest of manifests) if (manifest.extends) parents.add(manifest.extends);
+  const roots = manifests.filter((manifest) => !parents.has(manifest.name));
+  const starts = roots.length > 0 ? roots : manifests;
+
+  const counted = new Set<string>();
+  let resolved = true;
+  let unresolved: string | null = null;
+  let reason: string | undefined;
+  for (const start of starts) {
+    const visited = new Set<string>();
+    let current: ScenarioManifest | undefined = start;
+    while (current) {
+      if (visited.has(current.name)) {
+        resolved = false;
+        unresolved ??= current.name;
+        reason ??= `scenario inheritance cycle through '${current.name}'`;
+        break;
+      }
+      visited.add(current.name);
+      counted.add(current.name);
+      if (current.extends === null) break;
+      const parent = byName.get(current.extends);
+      if (!parent) {
+        resolved = false;
+        if (unresolved === null) {
+          unresolved = current.extends;
+          reason = `parent scenario manifest '${current.extends}' is not in the observed scope`;
+        }
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  let declaredCount = 0;
+  for (const name of counted) declaredCount += byName.get(name)?.faults.length ?? 0;
+  const singleRoot = starts.length === 1 ? starts[0] : undefined;
+
+  return {
+    source: "observed manifests",
+    resolved,
+    extends: unresolved ?? singleRoot?.extends ?? null,
+    ...(reason ? { reason } : {}),
+    declared_count: declaredCount,
+    unverified_inheritance: unresolved,
+    unverified_count: resolved ? 0 : null
+  };
+}
+
 export function safeRelativePath(root: string, requested: string): string {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(requested);

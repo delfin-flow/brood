@@ -45,9 +45,9 @@ serves: the "business operations workspace" offer (agentic operations).
   by `fixtures/materialize.sh` on a **throwaway copy** of one scenario (`BROOD_SCENARIO`, default
   `dirty-business`) that the harness mounts at `/srv/scenario:ro`. A fresh clone therefore reproduces
   the delivered fault set with no manual step, the checkout is never written (a run leaves
-  `git status --short` clean), and a guard test fails if the mount is not materialised. Remaining seam:
-  a fault a scenario inherits (`extends:`) is detected but not listed as declared, because the CLI
-  cross-checks only the manifest embedded in the packet.
+  `git status --short` clean), and a guard test fails if the mount is not materialised. A scenario's
+  inherited declarations are no longer dropped silently: `assess`/`report` carry a `declarations` block
+  that names an `extends:` parent it cannot see (S8).
 - **No unattended cycle yet.** Nothing here proves a cycle can run without a human in the loop; that is
   the point of S6, not a current fact.
 - **S6's acceptance names gates that do not exist.** "Ten acceptance gates (A1–A10)" appears only in
@@ -84,6 +84,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | S5 | **Fixture materialisation** — `materialize.sh` re-applies `.git.fixture`→`.git` and the `hostile` permissions; the harness now runs it on a throwaway copy of one mounted scenario (`BROOD_SCENARIO`), so a fresh checkout is hostile without a manual step | scripts | 🔄 | A fresh clone + `cd suite && npm run test:int` reproduces the same fault set as the zip — and leaves the checkout untouched |
 | S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
 | S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
+| S8 | **Declared-chain honesty** — `assess`/`report` read `extends:`, resolve the chain when the parent manifests are in the observed scope, and otherwise name the unresolved inheritance and say its declarations could not be verified | optimisation | 🔄 | `hostile`'s packet and report both state "4 declared, inheritance via `dirty-business` unverified"; the suite asserts the CLI's block and fails if it disappears |
 
 ## Distribution & stations
 
@@ -109,3 +110,4 @@ S1, S3 and S4 were done in-session (`3397d3d`, `665e42b`); S2 and S5 ran as flas
 acceptance is met and verified, and each stays 🔄 until the owner confirms it. The v0 acceptance run
 (`docs/verification-2026-11-14.md`) re-verified all of them from a fresh clone; the owner's review
 checklist is in that note's Result.
+

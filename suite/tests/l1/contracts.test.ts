@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
+import path from "node:path";
 import {
   validateFinding,
   validateManifest,
@@ -6,6 +8,7 @@ import {
   validateProposal,
   validateReceipt,
   parseScenarioFaults,
+  parseScenarioHeader,
   canonicalPacketHash,
   sha256
 } from "../../cli/src/lib.ts";
@@ -131,3 +134,130 @@ describe("L1 — proposal and receipt contracts", () => {
     expect(() => validateReceipt({ ...goodReceipt, after_sha256: "broken" })).toThrow(/SHA-256/);
   });
 });
+
+/**
+ * A scenario that `extends:` a parent keeps the inherited faults in the parent's manifest.
+ * The CLI must never report the observed subset as the whole declared set: when the parent
+ * manifest is not among the observed facts, `assess` says so instead of staying silent.
+ */
+function scenarioYaml(name: string, parent: string | null, faults: Array<{ id: string; expect_as: string; evidence?: string }>): string {
+  const lines = [`name: ${name}`];
+  if (parent !== null) lines.push(`extends: ${parent}`);
+  if (faults.length === 0) {
+    lines.push("faults: []");
+    return `${lines.join("\n")}\n`;
+  }
+  lines.push("faults:");
+  for (const fault of faults) {
+    lines.push(`  - id: ${fault.id}`, `    expect_as: ${fault.expect_as}`, "    discoverable_by:", `      - cat ${fault.evidence ?? "evidence.txt"}`, `    evidence: ${fault.evidence ?? "evidence.txt"}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function manifestPacket(scenarioRoot: string, content: string): Record<string, unknown> {
+  const base = {
+    schema_version: 1,
+    kind: "filesystem.snapshot",
+    scope: "/srv/scenario",
+    coverage: "complete-within-scope",
+    observed_at: "2026-11-13T12:00:00.000Z",
+    collector: { name: "filesystem", version: "1.0.0" },
+    facts: [{
+      kind: "filesystem.file",
+      path: `${scenarioRoot}/scenario.yaml`,
+      sha256: sha256(content),
+      size: Buffer.byteLength(content),
+      mode: 0o644,
+      content
+    }]
+  };
+  return { ...base, canonical_hash: canonicalPacketHash(base) };
+}
+
+function assessWithCli(packets: unknown[]): Promise<Record<string, any>> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["cli/src/index.ts", "assess"], {
+      cwd: path.resolve(import.meta.dirname, "../.."),
+      env: { ...process.env, BROOD_PROVIDER: "fake" },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => out.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => err.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`assess exited ${code}: ${Buffer.concat(err).toString()}${Buffer.concat(out).toString()}`));
+        return;
+      }
+      resolve(JSON.parse(Buffer.concat(out).toString("utf8")) as Record<string, any>);
+    });
+    child.stdin?.end(JSON.stringify(packets));
+  });
+}
+
+describe("L1 — declared-chain honesty", () => {
+  it("names an inheritance it cannot verify when the parent manifest is out of scope", async () => {
+    const child = scenarioYaml("child", "parent", [
+      { id: "a", expect_as: "kind.a" },
+      { id: "b", expect_as: "kind.b" }
+    ]);
+    const result = await assessWithCli([manifestPacket("/srv/scenario/child", child)]);
+    expect(result.declarations).toMatchObject({
+      source: "observed manifests",
+      resolved: false,
+      extends: "parent",
+      unverified_inheritance: "parent",
+      declared_count: 2,
+      unverified_count: null
+    });
+    expect(result.declarations.reason).toMatch(/parent scenario manifest 'parent' is not in the observed scope/);
+    expect(result.undetected).toHaveLength(2);
+  });
+
+  it("resolves the whole chain when every parent manifest is in scope", async () => {
+    const child = scenarioYaml("child", "parent", [{ id: "a", expect_as: "kind.a" }]);
+    const parent = scenarioYaml("parent", "grandparent", [{ id: "b", expect_as: "kind.b" }]);
+    const grandparent = scenarioYaml("grandparent", null, [{ id: "c", expect_as: "kind.c" }]);
+    const result = await assessWithCli([
+      manifestPacket("/srv/scenario/child", child),
+      manifestPacket("/srv/scenario/parent", parent),
+      manifestPacket("/srv/scenario/grandparent", grandparent)
+    ]);
+    expect(result.declarations).toMatchObject({
+      resolved: true,
+      extends: "parent",
+      declared_count: 3,
+      unverified_inheritance: null,
+      unverified_count: 0
+    });
+    expect(result.declarations).not.toHaveProperty("reason");
+    // An inherited fault is named even when no detector exists for it.
+    expect(result.undetected.map((entry: any) => entry.fault_id).sort()).toEqual(["a", "b", "c"]);
+    for (const entry of result.undetected) expect(entry.reason).toContain("no detector for kind");
+  });
+
+  it("claims nothing when the scenario inherits nothing", async () => {
+    for (const content of [scenarioYaml("solo", null, [{ id: "a", expect_as: "kind.a" }]), "name: solo\nfaults: []\n"]) {
+      const result = await assessWithCli([manifestPacket("/srv/scenario/solo", content)]);
+      expect(result.declarations).toMatchObject({
+        resolved: true,
+        extends: null,
+        unverified_inheritance: null,
+        unverified_count: 0
+      });
+      expect(result.declarations.reason).toBeUndefined();
+    }
+    const empty = await assessWithCli([manifestPacket("/srv/scenario/solo", scenarioYaml("solo", null, []))]);
+    expect(empty.declarations.declared_count).toBe(0);
+  });
+
+  it("reads `extends` and `name` from the manifest header, rejecting a non-string parent", () => {
+    expect(parseScenarioHeader("name: child\nextends: parent\nfaults: []\n")).toEqual({ name: "child", extends: "parent" });
+    expect(parseScenarioHeader("name: solo\nextends: null\nfaults: []\n")).toEqual({ name: "solo", extends: null });
+    expect(parseScenarioHeader("faults: []\n")).toEqual({ name: null, extends: null });
+    expect(() => parseScenarioHeader("extends: [a]\nfaults: []\n")).toThrow(/extends/);
+  });
+});
+

@@ -5,6 +5,7 @@ import {
   declaredExpectedCoverage,
   declaredFaultChain,
   declaredFaults,
+  declaredManifestHeader,
   remote,
   remoteJson,
   requestedScenario,
@@ -50,6 +51,15 @@ interface Assessment {
   coverage: string;
   findings: Finding[];
   undetected: Undetected[];
+  declarations: {
+    source: string;
+    resolved: boolean;
+    extends: string | null;
+    reason?: string;
+    declared_count: number;
+    unverified_inheritance: string | null;
+    unverified_count: number | null;
+  };
 }
 
 /**
@@ -64,6 +74,7 @@ const scenarioName = requestedScenario();
 let expectedCoverage = "";
 let declared: Awaited<ReturnType<typeof declaredFaults>> = [];
 let declaredChain: Awaited<ReturnType<typeof declaredFaultChain>> = [];
+let manifestHeader: { name: string | null; extends: string | null } = { name: null, extends: null };
 let declaredKinds = new Set<string>();
 let packets: Packet[] = [];
 let assessment: Assessment;
@@ -72,6 +83,7 @@ let findings: Finding[] = [];
 beforeAll(async () => {
   await startBroodEnvironment();
   expectedCoverage = await declaredExpectedCoverage();
+  manifestHeader = await declaredManifestHeader();
   declared = await declaredFaults();
   declaredChain = await declaredFaultChain();
   declaredKinds = new Set(declaredChain.map((fault) => fault.expectAs));
@@ -95,7 +107,7 @@ describe("L2 — SSH command integration", () => {
     );
     expect(providerFreeObservation.map((packet) => packet.canonical_hash).sort()).toEqual(packets.map((packet) => packet.canonical_hash).sort());
 
-    const reassessment = await remoteJson<{ status: string; coverage: string; findings: Finding[]; undetected: Undetected[] }>(
+    const reassessment = await remoteJson<Assessment>(
       withRemoteEnv({ BROOD_PROVIDER: "fake" }, cli("assess")), packets
     );
     // The scenario declares its own coverage. `assess` reports the aggregate packet
@@ -145,9 +157,40 @@ describe("L2 — SSH command integration", () => {
       withRemoteEnv({ BROOD_PROVIDER: "provider-must-not-be-called" }, cli("report")),
       { packets, findings: reassessment.findings }
     );
-    expect(report.status).toBe("ok");
-    expect(report.markdown).toContain("# Brood observation report");
-    expect(report.json).toHaveProperty("coverage");
+    // The operator-facing artifact must carry the same declared-set statement: a scan that
+    // saw only the mounted manifest never reports the inherited declarations as complete.
+    if (manifestHeader.extends === null) {
+      expect(report.markdown).toContain("Declared set:");
+      expect(report.markdown).not.toContain("not verifiable in scope");
+    } else {
+      expect(report.markdown).toContain(`inheritance via '${manifestHeader.extends}' not verifiable in scope`);
+    }
+    expect(report.json).toHaveProperty("declarations");
+  });
+
+  // H1 / S8 — the CLI states what its declared set can and cannot verify, and the suite
+  // asserts that statement rather than substituting its own chain walk.
+  it("reports the declared set and names an inheritance it cannot verify in scope", async () => {
+    const declarations = assessment.declarations;
+    expect(declarations.source).toBe("observed manifests");
+    expect(declarations.declared_count).toBe(declared.length);
+    if (manifestHeader.extends === null) {
+      expect(declarations.resolved).toBe(true);
+      expect(declarations.unverified_inheritance).toBeNull();
+      expect(declarations.unverified_count).toBe(0);
+      expect(declarations.reason).toBeUndefined();
+    } else {
+      // The parent's manifest is not mounted, so the CLI must name it as unresolved and
+      // must not invent a count for declarations it has not seen.
+      expect(declarations.resolved).toBe(false);
+      expect(declarations.extends).toBe(manifestHeader.extends);
+      expect(declarations.unverified_inheritance).toBe(manifestHeader.extends);
+      expect(declarations.unverified_count).toBeNull();
+      expect(declarations.reason).toContain(`'${manifestHeader.extends}'`);
+      // Cross-check only: the harness reading the fixture tree knows more than the mount.
+      // It must never know *less* than the CLI claims — that would be the CLI over-reporting.
+      expect(declaredChain.length).toBeGreaterThanOrEqual(declarations.declared_count);
+    }
   });
 });
 
@@ -196,9 +239,9 @@ describe("L3 — detection from observed facts", () => {
     }
 
     // An explicit 95 % threshold leaves the same capture under the line. Only a scenario
-    // that declares the storage fault itself can assert the `undetected` entry: the CLI
-    // cross-checks the manifest embedded in the packet, and an inherited declaration lives
-    // in its parent's manifest (roadmap S5 records the seam).
+    // whose own manifest declares the storage fault can assert the `undetected` entry: an
+    // inherited declaration lives in the parent's manifest, which is out of scope here (the
+    // CLI names that gap in `declarations`, it cannot cross-check what it has not seen).
     const declaredStorage = declared.filter((fault) => fault.expectAs === "storage.headroom_low");
     if (declaredStorage.length > 0) {
       const strict = await remoteJson<Assessment>(

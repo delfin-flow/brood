@@ -142,3 +142,32 @@ claim about the detectors that ran.
 
 The `report` command lists the same `undetected` set, so the operator-facing artifact never
 reads as "all clear" when a kind was never checked.
+
+### `declarations` — what the declared set could verify
+
+The manifest embedded in the packet is the only manifest the CLI can see. A scenario that
+inherits (`extends:`) keeps the inherited faults in its **parent's** manifest, so a scan of
+one mounted scenario sees a subset of the declared set. `assess` therefore always returns a
+`declarations` block next to `findings` and `undetected`:
+
+```json
+{ "source": "observed manifests", "resolved": false, "extends": "dirty-business",
+  "reason": "parent scenario manifest 'dirty-business' is not in the observed scope",
+  "declared_count": 4, "unverified_inheritance": "dirty-business", "unverified_count": null }
+```
+
+- `resolved` is true only when every manifest the chain needs is among the observed facts.
+  When an operator scans a tree that holds child **and** parent manifests, the whole chain is
+  walked (child → parent → grandparent) and `declared_count` is the full sum.
+- `unverified_inheritance` names the unresolved parent; `unverified_count` is `null` when the
+  parent manifest is out of scope — the CLI does not invent a number for declarations it has
+  not seen. `reason` says why.
+- `extends` is the direct parent (or the unresolved one); `declared_count` counts only the
+  faults of manifests the walk could read, so it is a **lower bound** while `resolved` is false.
+- A scenario with no `extends` reports `resolved: true`, `unverified_inheritance: null`,
+  `unverified_count: 0` and claims nothing else.
+
+`report` carries the same block in its JSON and states it in the Markdown artifact, e.g.
+`- Declared set: 4 faults from the observed manifests; inheritance via 'dirty-business' not
+verifiable in scope (inherited declarations unverified; count unknown)`. An empty or
+unsupported scan reports `resolved: false` with the reason instead of an empty success.
