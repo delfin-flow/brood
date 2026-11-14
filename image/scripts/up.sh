@@ -2,7 +2,10 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURES_DIR="$(cd -- "$ROOT_DIR/../fixtures" 2>/dev/null && pwd || true)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
+SCENARIO_NAME="${BROOD_SCENARIO:-dirty-business}"
+SCENARIO_RUNTIME_DIR="$RUNTIME_DIR/scenario"
 OPERATOR_DIR="$RUNTIME_DIR/operator"
 AUTHORIZED_KEYS_DIR="$RUNTIME_DIR/authorized_keys"
 HOST_KEYS_DIR="$RUNTIME_DIR/host_keys"
@@ -33,8 +36,27 @@ export BROOD_UID BROOD_GID
 cd "$ROOT_DIR"
 mkdir -p "$OPERATOR_DIR" "$AUTHORIZED_KEYS_DIR" "$HOST_KEYS_DIR"
 chmod 0700 "$RUNTIME_DIR" "$OPERATOR_DIR" "$AUTHORIZED_KEYS_DIR" "$HOST_KEYS_DIR"
+
+# The delivered machine mounts a materialised COPY of one scenario, never the repository's
+# fixtures tree: an approved change through the machine must not be able to rewrite the
+# evidence set. `materialize.sh` re-applies what a git checkout loses (`.git.fixture` ->
+# `.git`, and the `hostile` permission faults) — `cp -a` alone would deliver a machine with
+# no repositories and readable "unreadable" directories.
+[ -n "$FIXTURES_DIR" ] || fail "The fixtures tree is required to populate the machine (expected at $ROOT_DIR/../fixtures)."
+[ -d "$FIXTURES_DIR/$SCENARIO_NAME" ] || fail "BROOD_SCENARIO must name a scenario under $FIXTURES_DIR: $SCENARIO_NAME"
+printf 'Materialising scenario %s into %s...\n' "$SCENARIO_NAME" "$SCENARIO_RUNTIME_DIR/$SCENARIO_NAME"
+chmod -R u+rwX "$SCENARIO_RUNTIME_DIR" 2>/dev/null || true
+rm -rf -- "$SCENARIO_RUNTIME_DIR"
+mkdir -p "$SCENARIO_RUNTIME_DIR"
+cp -a "$FIXTURES_DIR/$SCENARIO_NAME" "$SCENARIO_RUNTIME_DIR/$SCENARIO_NAME"
+bash "$FIXTURES_DIR/materialize.sh" --root "$SCENARIO_RUNTIME_DIR" "$SCENARIO_NAME"
+# Compose substitutes this variable into the bind-mount source.
+export BROOD_SCENARIO="$SCENARIO_NAME"
+
 if [[ "$(id -u)" -eq 0 ]]; then
     chown "$BROOD_UID:$BROOD_GID" "$RUNTIME_DIR" "$OPERATOR_DIR" "$AUTHORIZED_KEYS_DIR" "$HOST_KEYS_DIR"
+    # A copy made by root must still be writable by the container's `brood` account.
+    chown -R "$BROOD_UID:$BROOD_GID" "$SCENARIO_RUNTIME_DIR"
 fi
 
 printf 'Building the Debian 13 x86-64 machine image...\n'

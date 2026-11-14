@@ -13,8 +13,11 @@ services:
     ports:
       - "127.0.0.1:2222:22"
     volumes:
+      # A materialised COPY of one fixture scenario (image/scripts/up.sh prepares it).
+      # The repository's fixtures/ tree is never the mount source: an approved change
+      # through the machine must not be able to rewrite the evidence set.
       - type: bind
-        source: ./scenario
+        source: ./.runtime/scenario/${BROOD_SCENARIO:-dirty-business}
         target: /srv/scenario
       - type: bind
         source: ./.runtime/authorized_keys

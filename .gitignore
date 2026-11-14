@@ -1,9 +1,7 @@
 # dependencies and build output
 suite/node_modules/
 suite/cli/dist/
-# runtime state created by image/scripts/up.sh
+# runtime state created by image/scripts/up.sh (the materialised scenario copy lives here)
 image/.runtime/
-image/scenario
-# derived test image inputs (throwaway, never delivered)
+# derived test image input (a throwaway key; never delivered)
 suite/testkey.pub
-suite/sshd_config.test

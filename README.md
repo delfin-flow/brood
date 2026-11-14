@@ -47,32 +47,35 @@ unattended cycle, no A1–A10 gates) is written down in `docs/verification-2026-
 ## Run it
 
 ```sh
-cd image && bash scripts/up.sh          # the delivered machine (compose, key injection, readiness)
+cd image && bash scripts/up.sh          # delivered machine: builds, materialises a scenario, waits for SSH
 cd suite && npm install && npm test      # L0 + L1, free and offline
 ```
 
-The delivered machine mounts `image/scenario/` (git-ignored) at `/srv/scenario`. A fresh clone has no
-scenario there, so populate it first if you want something to pamper:
+The delivered machine mounts a **materialised copy** of one fixture scenario at `/srv/scenario`
+(writable, so an approved change persists on the host) — never the repository's `fixtures/` tree, so
+pampering the machine cannot rewrite the evidence set. `BROOD_SCENARIO` chooses the scenario (default
+`dirty-business`): `up.sh` copies it under the git-ignored `image/.runtime/scenario/` and runs
+`fixtures/materialize.sh` on the copy, which restores `.git.fixture` → `.git` and the `hostile`
+permission faults that a git checkout cannot carry. A fresh clone therefore delivers a machine that
+already has the planted faults, and `git status --short` stays clean after `up.sh` and after an
+apply/revert round trip.
 
-```sh
-cp -a fixtures/dirty-business image/scenario/    # or symlink it, as the author does locally
-```
-
-The integration layers need a **test image** — the delivered image deliberately has no Node and no
-baked key, while the harness needs both. `suite/Dockerfile.test` builds it:
+The integration layers need a **test image** — the delivered image deliberately has no Node and no baked
+key, while the harness needs both. `suite/Dockerfile.test` derives it; every input is committed or
+generated in the same sequence:
 
 ```sh
 cd image && docker build -t brood-image:local .
-cd ../suite && npm run build && ssh-keygen -q -t ed25519 -N '' -f /tmp/brood-keys/id_ed25519
-cp /tmp/brood-keys/id_ed25519.pub testkey.pub
-cp ../image/sshd_config sshd_config.test     # required by Dockerfile.test, not tracked
-
+cd ../suite && npm run build
+mkdir -p /tmp/brood-keys
+ssh-keygen -q -t ed25519 -N '' -f /tmp/brood-keys/id_ed25519
+cp /tmp/brood-keys/id_ed25519.pub testkey.pub       # throwaway, git-ignored
 docker build -f Dockerfile.test -t brood-test:local .
 ```
 
-Both `testkey.pub` and `sshd_config.test` are throwaway, git-ignored build inputs of the derived test
-image. Note that `image/scripts/down.sh` removes `brood-test:local` together with the delivered image
-(`docker compose down --rmi all`), so build the test image **after** a teardown, or rebuild it.
+`suite/sshd_config.test` is committed — the derived image's own self-contained config, not a copy of the
+delivered machine's — so no further step is needed. `image/scripts/down.sh` removes only the delivered
+image (`--rmi local`, scoped to the Compose project); `brood-test:local` survives a teardown.
 
 Then run the integration layers against **one scenario per run** (`BROOD_SCENARIO`, default
 `dirty-business`). The harness copies the scenario to a throwaway directory under `/tmp`, runs

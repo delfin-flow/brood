@@ -10,10 +10,12 @@
   context entry except the Dockerfile, so runtime files and generated keys are not
   sent as build inputs.
 - `entrypoint.sh`, `sshd_config`, the authorized-keys directory, the host-key
-  directory, and `scenario/` are supplied through Compose bind mounts at runtime.
-  The scenario mount is intentionally writable so approved fixture changes persist
-  on the host; the SSH config, entrypoint, authorized-keys directory, and host-key
-  directory are read-only inside the machine.
+  directory, and the scenario are supplied through Compose bind mounts at runtime.
+  `up.sh` materialises a **copy** of one fixture scenario (`BROOD_SCENARIO`, default
+  `dirty-business`) under `.runtime/scenario/` and that copy is mounted, so the mount
+  is intentionally writable while the repository's `fixtures/` evidence set never is.
+  The SSH config, entrypoint, authorized-keys directory, and host-key directory are
+  read-only inside the machine.
 
 ## Package choices
 
@@ -74,8 +76,9 @@ network for up to 60 seconds. The readiness probe uses the SSH client in a
 throwaway container, so `up.sh` does not require an OpenSSH client installed on
 the host. To make the printed SSH command work on the host, install/use the host
 OpenSSH client. Run `down.sh` to remove the service, Compose network, named
-volumes, locally built service image, and all generated `.runtime/` keys/files.
-The `scenario/` source directory is retained.
+volumes, the locally built service image (`--rmi local`, so the derived test image
+survives), and all generated `.runtime/` state — the materialised scenario copy
+included. The repository's `fixtures/` tree is never touched.
 
 The scripts use the fixed Compose project name `brood-image`; do not run a second
 independent copy under the same project name concurrently.

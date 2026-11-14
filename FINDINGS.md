@@ -4,6 +4,12 @@
 Node 24.19.0. Everything below was run, not read; the external build could not run any of it (its own
 `NOTES.md` says so under **Unmet**). The clean-room run, its commands and its counts are recorded in
 `docs/verification-2026-11-14.md`.
+> **Status 2026-11-14:** all three are **fixed** (S9 / the delivery recipe). `suite/sshd_config.test` is
+> committed (the derived image's own config, so a clone builds it with no `cp`); `down.sh` runs
+> `docker compose down --rmi local`, scoped to the project's own image, so `brood-test:local` survives;
+> and `up.sh` materialises a runtime **copy** of one scenario under `image/.runtime/scenario/` and
+> mounts that, so a fresh clone's machine has the planted faults and the repository's `fixtures/` tree
+> is never the mount source. The three items below are kept as the record of what the clone run found.
 
 ---
 

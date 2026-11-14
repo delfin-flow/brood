@@ -23,6 +23,10 @@ serves: the "business operations workspace" offer (agentic operations).
   clean. Two delivery gaps were found and recorded in `FINDINGS.md` (the test image needs a
   `sshd_config.test` that nothing generates; a fresh clone's delivered machine has an empty
   `/srv/scenario`).
+- **The three delivery gaps** the 2026-11-14 clean-room run found — an uncommitted `sshd_config.test`,
+  `down.sh` removing the derived test image, and a fresh clone's delivered machine mounting an empty
+  `/srv/scenario` — are **closed by S9** (the delivery recipe); `FINDINGS.md` keeps the record of what
+  the clone run found.
 - **S1 — coverage honesty.** A broken symlink is a fact (`filesystem.symlink`, `target_exists: false`),
   the scan stays `complete-within-scope`, and every non-complete packet carries
   `errors`/`skipped`/`problems` — enforced by `validatePacket`, documented in `docs/packet-schema.md`.
@@ -85,6 +89,7 @@ serves: the "business operations workspace" offer (agentic operations).
 | S6 | **The ambient cycle (unattended), gated** — a bounded loop: observe → assess → propose → (approve) → apply → verify → report, running with **no human per step**, inside the standing requirements | app | ⬜ | Ten acceptance gates (A1–A10) pass; the cycle runs a full round without a human decision except approval; cost and blast radius recorded |
 | S7 | **Adopt a sub-project** — when S6 reveals a real need (event loop, deterministic reasoning, retrieval), reference **Guild / Engram / Iterifact / Hippocampus** instead of rebuilding; promote Brood's loop toward the compiled form | binary | ⬜ | The adopted component is referenced by contract; Brood carries no re-implementation of it |
 | S8 | **Declared-chain honesty** — `assess`/`report` read `extends:`, resolve the chain when the parent manifests are in the observed scope, and otherwise name the unresolved inheritance and say its declarations could not be verified | optimisation | 🔄 | `hostile`'s packet and report both state "4 declared, inheritance via `dirty-business` unverified"; the suite asserts the CLI's block and fails if it disappears |
+| S9 | **The delivery recipe** — a fresh clone builds the test image (the derived sshd config is committed), `down.sh` keeps `brood-test:local`, and the delivered machine mounts a materialised runtime **copy** of one scenario (`BROOD_SCENARIO`), never the repository's `fixtures/` tree | scripts | 🔄 | From a fresh clone: `up.sh` serves a materialised `/srv/scenario` with real `.git` directories, `git status --short` stays clean through `up`/`apply`/`revert`/`down`, `docker build -f Dockerfile.test` needs no `cp`, and `brood-test:local` survives `down.sh` |
 
 ## Distribution & stations
 

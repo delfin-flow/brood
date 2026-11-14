@@ -25,6 +25,6 @@ RUN chown -R brood:brood /home/brood/.ssh && chmod 0700 /home/brood/.ssh && chmo
 # The delivered machine relies on compose for its sshd config and entrypoint.
 # The integration harness runs the image bare, so the test image self-contains both.
 USER root
-RUN mkdir -p /etc/ssh/host_keys && ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/host_keys/ssh_host_ed25519_key
+RUN mkdir -p /etc/ssh/host_keys /run/sshd && ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/host_keys/ssh_host_ed25519_key
 COPY sshd_config.test /etc/ssh/sshd_config
 ENTRYPOINT ["/usr/sbin/sshd", "-D", "-e", "-f", "/etc/ssh/sshd_config"]

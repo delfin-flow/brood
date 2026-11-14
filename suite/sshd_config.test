@@ -1,0 +1,40 @@
+# sshd configuration of the DERIVED TEST IMAGE ONLY (suite/Dockerfile.test).
+#
+# This file is committed so a fresh clone can build the test image with no copy step.
+# It is not the delivered machine's configuration: the delivered machine bind-mounts
+# image/sshd_config through Compose. It is deliberately self-contained (sshd runs as
+# root under the image entrypoint, with one build-time host key and one throwaway key)
+# rather than a copy of image/sshd_config kept in sync by hand.
+
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+
+HostKey /etc/ssh/host_keys/ssh_host_ed25519_key
+PidFile /run/sshd.pid
+
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+UsePAM no
+AllowUsers brood
+AuthorizedKeysFile .ssh/authorized_keys
+StrictModes yes
+
+AllowAgentForwarding no
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitTTY yes
+
+LoginGraceTime 30
+MaxAuthTries 3
+MaxSessions 2
+PrintMotd no
+PrintLastLog yes
+UseDNS no
+LogLevel ERROR
