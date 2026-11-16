@@ -61,6 +61,15 @@ serves: the "business operations workspace" offer (agentic operations).
 
 ## Owner decisions (operator, 2026-11-13)
 
+- **D6 (operator, 2026-11-16) — Brood grows by modules, not by a monolith.** The detector registry
+  (S2) is the first module seam; collectors, detectors and pipeline items are modules with a declared
+  boundary, contract, owner and their own regression set, so each can be replaced, withheld
+  (`unsupported` + reason) or upgraded without re-validating the whole suite. `broodctl` stays the
+  **one entry point** — modularity is an internal layout, never a fan of repositories. **Do not force
+  it:** a part becomes a module when it has become independently changeable; splitting is proposed
+  against the suite, never applied as a template. Feeds the private KB direction
+  `agentic-os/modularity.md` (referenced by name: workspace modularisation).
+
 - **D1** — Brood is **open source**; the methodology is the **private moat**, Continuity the client asset
   (see the methodology's product model).
 - **D2** — the path leads to the **unattended ambient cycle**, gated on the evidence discipline: a

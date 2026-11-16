@@ -44,6 +44,10 @@ is `fixtures/` (five dirty scenarios).
 
 - **One story at a time** (`roadmap/ROADMAP.md`); a story is done only when its acceptance is met and
   confirmed, never on assumption.
+- **Modular boundary, one entry point** (roadmap D6). `broodctl` is the only operator; collectors and
+  detectors are modules behind registries — new capability arrives as a module with its own contract
+  and regression set, never as a patch to the loop, and a withheld module reports `unsupported` with
+  its reason. Never split the project into repositories to get this; modules are a layout.
 - **Provider-free by default.** `BROOD_PROVIDER=fake` unless a real one is deliberately selected with
   an explicit key.
 - **No `sleep`-based synchronisation** — wait on conditions. Time is injected, runs are seeded.
